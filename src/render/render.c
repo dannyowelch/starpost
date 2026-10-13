@@ -452,27 +452,16 @@ static void draw_text(float x, float y, float h, const char *s, float r, float g
     }
 }
 
-static void draw_shield_bar(const GameState *g)
+static void draw_wave_gauge(const GameState *g)
 {
-    int n = g->shield_max;
-    float seg = 0.045f;
-    float gap = 0.012f;
-    float width;
-    float x;
-    if (n < 1)
-        return;
-    if (n > 16)
-        n = 16;
-    width = (float)n * seg + (float)(n - 1) * gap;
-    x = -width * 0.5f;
-    for (int i = 0; i < n; i++) {
-        float x0 = x + (float)i * (seg + gap);
-        int on = i < g->shield;
-        if (on)
-            stroke(x0, 0.915f, x0 + seg, 0.915f, 0.012f, 0.45f, 1.0f, 1.0f);
-        else
-            stroke(x0, 0.915f, x0 + seg, 0.915f, 0.008f, 0.22f, 0.08f, 0.10f);
-    }
+    float gauge = starpost_wave_gauge(g);
+    float width = 0.72f;
+    float y = 0.915f;
+    float x0 = -width * 0.5f;
+    float fill = width * gauge;
+    stroke(x0, y, x0 + width, y, 0.007f, 0.16f, 0.28f, 0.36f);
+    if (fill > 0.004f)
+        stroke(x0, y, x0 + fill, y, 0.011f, 0.45f, 1.25f, 1.45f);
 }
 
 static void fill_rect(float x0, float y0, float x1, float y1, float r, float g, float b)
@@ -501,7 +490,7 @@ static void draw_hud(const GameState *g)
     draw_text(0.97f - width, y, h, buf, 0.95f, 0.95f, 1.0f);
     snprintf(buf, sizeof buf, "ZAP %u", (unsigned)g->player.zaps);
     draw_text(-0.97f, 0.79f, 0.042f, buf, 1.45f, 1.15f, 0.30f);
-    draw_shield_bar(g);
+    draw_wave_gauge(g);
 
     if (g->state != STATE_WAVE_CLEAR)
         return;

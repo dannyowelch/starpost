@@ -23,8 +23,11 @@
 #define STARPOST_WAVE_CLEAR_TIME 1.5f
 #define STARPOST_DT (1.0f / 120.0f)
 #define STARPOST_BEAM_TIME 0.18f
-#define STARPOST_FIRE_COOLDOWN 0.16f
+#define STARPOST_FIRE_COOLDOWN 0.32f
 #define STARPOST_TURN_REPEAT 0.13f
+/* A slow frame must not replay an unbounded stretch of simulation. */
+#define STARPOST_MAX_FRAME_SEC 0.25
+#define STARPOST_MAX_SIM_STEPS 8
 
 typedef enum {
     ENEMY_NONE = 0,
@@ -72,6 +75,20 @@ typedef struct {
     float enemy_speed;
 } WaveConfig;
 
+typedef enum {
+    GAME_SND_STEP = 1,
+    GAME_SND_FIRE,
+    GAME_SND_WALKER_KILL,
+    GAME_SND_FLYER_SPAWN,
+    GAME_SND_FLYER_KILL,
+    GAME_SND_BASE,
+    GAME_SND_ZAP,
+    GAME_SND_WAVE,
+    GAME_SND_OVER
+} GameSnd;
+
+#define GAME_SND_MAX 24
+
 typedef struct {
     Enemy enemies[STARPOST_MAX_ENEMIES];
     Player player;
@@ -79,6 +96,7 @@ typedef struct {
     int spawned;
     int flyers_spawned;
     int killed;
+    int arrived;
     float spawn_timer;
     float clear_timer;
     float turn_timer;
@@ -91,6 +109,8 @@ typedef struct {
     uint32_t score;
     uint32_t rng;
     GamePlayState state;
+    uint8_t snd_count;
+    uint8_t snd[GAME_SND_MAX];
 } GameState;
 
 WaveConfig wave_config(int wave);
@@ -99,5 +119,10 @@ int starpost_lane_from_angle(float angle);
 int starpost_flyer_in_lane(float angle, int lane);
 void game_init(GameState *g, uint32_t seed);
 void game_update(GameState *g, const InputFrame *in, float dt);
+/* Remaining fraction of this wave. 1 before any enemy is resolved, 0 when
+   every walker and flyer has been killed or has reached the base. */
+float starpost_wave_gauge(const GameState *g);
+/* Clamp one wall-clock slice and return how many fixed steps to run. */
+int game_frame_steps(double *acc, double elapsed);
 
 #endif
