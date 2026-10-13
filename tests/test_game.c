@@ -172,8 +172,7 @@ static void test_game_over_and_restart(void)
 
 static void test_recharge_is_partial(void)
 {
-    CHECK(STARPOST_SHIELD_RECHARGE > 0);
-    CHECK(STARPOST_SHIELD_RECHARGE < STARPOST_SHIELD_MAX);
+    CHECK(STARPOST_SHIELD_RECHARGE == 0);
     CHECK(STARPOST_SHIELD_DRAIN > 0);
 }
 
@@ -273,8 +272,7 @@ static void test_wave_clear_score_and_transition(void)
     CHECK(g.killed == count);
     CHECK(g.score == (uint32_t)count * (uint32_t)STARPOST_SCORE_KILL +
                          (uint32_t)STARPOST_SCORE_WAVE);
-    CHECK(STARPOST_SHIELD_MAX - 1 + STARPOST_SHIELD_RECHARGE > STARPOST_SHIELD_MAX);
-    CHECK(g.shield == STARPOST_SHIELD_MAX);
+    CHECK(g.shield == STARPOST_SHIELD_MAX - 1);
     CHECK(g.state == STATE_WAVE_CLEAR);
     CHECK(g.player.lane == lane);
 
@@ -293,7 +291,7 @@ static void test_wave_clear_score_and_transition(void)
     CHECK(g.spawned == 0);
     CHECK(g.killed == 0);
     CHECK(g.score == score);
-    CHECK(g.shield == STARPOST_SHIELD_MAX);
+    CHECK(g.shield == STARPOST_SHIELD_MAX - 1);
     CHECK(g.player.lane == lane);
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++)
         CHECK(!g.enemies[i].alive);
@@ -310,8 +308,7 @@ static void test_recharge_cap_and_arrival(void)
     g.shield = 1;
     kill_all(&g);
     CHECK(g.state == STATE_WAVE_CLEAR);
-    CHECK(1 + STARPOST_SHIELD_RECHARGE <= STARPOST_SHIELD_MAX);
-    CHECK(g.shield == 1 + STARPOST_SHIELD_RECHARGE);
+    CHECK(g.shield == 1);
 
     game_init(&g, 2);
     g.shield = STARPOST_SHIELD_MAX;
@@ -330,8 +327,7 @@ static void test_recharge_cap_and_arrival(void)
     CHECK(g.state == STATE_WAVE_CLEAR);
     CHECK(g.killed == 0);
     CHECK(g.score == (uint32_t)STARPOST_SCORE_WAVE);
-    CHECK(g.shield == STARPOST_SHIELD_MAX - n * STARPOST_SHIELD_DRAIN +
-                          STARPOST_SHIELD_RECHARGE);
+    CHECK(g.shield == STARPOST_SHIELD_MAX - n * STARPOST_SHIELD_DRAIN);
 }
 
 static void test_flyer_lane_and_spiral(void)
@@ -683,6 +679,7 @@ static void test_energy_abilities(void)
     CHECK(t->energize_cost == 5);
     CHECK(t->energize_time == 3.0f);
     CHECK(t->slow_cost == 10);
+    CHECK(t->repair_cost == 10);
     CHECK(t->slow_time == 5.0f);
     CHECK(t->slow_factor == 0.5f);
 
@@ -931,6 +928,58 @@ static void test_energy_abilities(void)
     game_update(&g, &in, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
     CHECK(g.energy == t->wave_grant);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.shield = 3;
+    g.energy = 40;
+    memset(&in, 0, sizeof in);
+    in.repair = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.shield == 4);
+    CHECK(g.energy == 40 - t->repair_cost);
+    CHECK(g.repair_flash == t->repair_glow);
+    CHECK(count_snd(&g, GAME_SND_REPAIR) == 1);
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.shield == 4);
+    CHECK(g.energy == 40 - t->repair_cost);
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    in.repair = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.shield == 5);
+    CHECK(g.energy == 40 - 2 * t->repair_cost);
+
+    g.energy = t->repair_cost - 1;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    in.repair = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.shield == 5);
+    CHECK(g.energy == t->repair_cost - 1);
+    CHECK(g.deny_flash == t->deny_time);
+
+    g.shield = g.shield_max;
+    g.energy = 40;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    in.repair = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.shield == g.shield_max);
+    CHECK(g.energy == 40);
+    CHECK(g.deny_flash == t->deny_time);
+
+    g.shield = g.shield_max - 1;
+    g.energy = 40;
+    g.state = STATE_WAVE_CLEAR;
+    g.clear_timer = 10.0f;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    in.repair = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.state == STATE_WAVE_CLEAR);
+    CHECK(g.shield == g.shield_max);
+    CHECK(g.energy == 40 - t->repair_cost);
 }
 
 static void test_frame_step_cap(void)

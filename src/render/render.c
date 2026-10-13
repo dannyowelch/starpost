@@ -1048,7 +1048,10 @@ static void build_scene(const GameState *g)
         float x1 = cosf(a) * 0.155f;
         float y1 = sinf(a) * 0.155f;
         int on = i < g->shield;
-        if (on)
+        int fresh = on && g->repair_flash > 0.0f && i == g->shield - 1;
+        if (fresh)
+            stroke(x0, y0, x1, y1, 0.02f, 1.6f, 1.9f, 1.4f);
+        else if (on)
             stroke(x0, y0, x1, y1, 0.011f, 0.55f, 1.35f, 1.55f);
         else
             stroke(x0, y0, x1, y1, 0.007f, 0.28f, 0.08f, 0.12f);

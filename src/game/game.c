@@ -85,6 +85,8 @@ const EnergyTune *energy_tune(void)
         5,    /* energize_cost */
         3.0f, /* energize_time */
         10,   /* slow_cost */
+        10,   /* repair_cost */
+        0.28f, /* repair_glow */
         5.0f, /* slow_time */
         0.5f, /* slow_factor, walkers only */
         0.16f, /* deny_time */
@@ -105,12 +107,12 @@ int starpost_normal_shot_allowed(const EnergyTune *tune, int energy)
 const DiffTune *diff_tune(Difficulty diff)
 {
     /* Advanced is the base table: scale 1, no count offset, flyers from
-       wave 2, recharge STARPOST_SHIELD_RECHARGE. Beginner is slower,
+       wave 2. Shield no longer recharges on a clear. Beginner is slower,
        sparser, and later flyers. Hyper is the opposite. */
     static const DiffTune tunes[DIFF_COUNT] = {
-        {0.75f, -2, 1.35f, 4, 3},
-        {1.00f, 0, 1.00f, 2, STARPOST_SHIELD_RECHARGE},
-        {1.35f, 3, 0.75f, 1, 1},
+        {0.75f, -2, 1.35f, 4, 0},
+        {1.00f, 0, 1.00f, 2, 0},
+        {1.35f, 3, 0.75f, 1, 0},
     };
     if (diff < 0 || diff >= DIFF_COUNT)
         diff = DIFF_ADVANCED;
@@ -566,11 +568,22 @@ static int any_alive(const GameState *g)
     return 0;
 }
 
+static void try_repair(GameState *g)
+{
+    const EnergyTune *tune = energy_tune();
+    if (g->shield >= g->shield_max || g->energy < tune->repair_cost) {
+        g->deny_flash = tune->deny_time;
+        emit(g, GAME_SND_DENY);
+        return;
+    }
+    g->energy -= tune->repair_cost;
+    g->shield += 1;
+    g->repair_flash = tune->repair_glow;
+    emit(g, GAME_SND_REPAIR);
+}
+
 static void enter_clear(GameState *g)
 {
-    g->shield += g->shield_recharge;
-    if (g->shield > g->shield_max)
-        g->shield = g->shield_max;
     g->score += (uint32_t)STARPOST_SCORE_WAVE;
     grant_energy(g, energy_tune()->wave_grant);
     g->state = STATE_WAVE_CLEAR;
@@ -624,6 +637,15 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         if (g->slow_timer < 0.0f)
             g->slow_timer = 0.0f;
     }
+    if (g->repair_flash > 0.0f) {
+        g->repair_flash -= dt;
+        if (g->repair_flash < 0.0f)
+            g->repair_flash = 0.0f;
+    }
+
+    if (in->repair && !g->prev_repair)
+        try_repair(g);
+    g->prev_repair = in->repair;
 
     if (g->state == STATE_WAVE_CLEAR) {
         g->clear_timer -= dt;

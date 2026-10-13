@@ -45,16 +45,16 @@ static void test_difficulty_scaling(void)
     CHECK(diff_tune(DIFF_BEGINNER)->count_add == -2);
     CHECK(diff_tune(DIFF_BEGINNER)->interval_scale == 1.35f);
     CHECK(diff_tune(DIFF_BEGINNER)->flyer_start == 4);
-    CHECK(diff_tune(DIFF_BEGINNER)->shield_recharge == 3);
+    CHECK(diff_tune(DIFF_BEGINNER)->shield_recharge == 0);
     CHECK(diff_tune(DIFF_ADVANCED)->speed_scale == 1.0f);
     CHECK(diff_tune(DIFF_ADVANCED)->count_add == 0);
     CHECK(diff_tune(DIFF_ADVANCED)->flyer_start == 2);
-    CHECK(diff_tune(DIFF_ADVANCED)->shield_recharge == STARPOST_SHIELD_RECHARGE);
+    CHECK(diff_tune(DIFF_ADVANCED)->shield_recharge == 0);
     CHECK(diff_tune(DIFF_HYPER)->speed_scale == 1.35f);
     CHECK(diff_tune(DIFF_HYPER)->count_add == 3);
     CHECK(diff_tune(DIFF_HYPER)->interval_scale == 0.75f);
     CHECK(diff_tune(DIFF_HYPER)->flyer_start == 1);
-    CHECK(diff_tune(DIFF_HYPER)->shield_recharge == 1);
+    CHECK(diff_tune(DIFF_HYPER)->shield_recharge == 0);
     CHECK(strcmp(diff_name(DIFF_BEGINNER), "BEGINNER") == 0);
     CHECK(strcmp(diff_name(DIFF_HYPER), "HYPER") == 0);
 
@@ -92,24 +92,24 @@ static void test_difficulty_scaling(void)
     memset(&idle, 0, sizeof idle);
     game_init_difficulty(&g, 1, DIFF_BEGINNER);
     CHECK(g.difficulty == DIFF_BEGINNER);
-    CHECK(g.shield_recharge == 3);
+    CHECK(g.shield_recharge == 0);
     CHECK(g.cfg.enemy_count == wave_config(1).enemy_count - 2);
     g.shield = 4;
     g.spawned = g.cfg.enemy_count + g.cfg.flyer_count;
     g.spawn_timer = 1000.0f;
     game_update(&g, &idle, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
-    CHECK(g.shield == 7);
+    CHECK(g.shield == 4);
 
     game_init_difficulty(&g, 1, DIFF_HYPER);
-    CHECK(g.shield_recharge == 1);
+    CHECK(g.shield_recharge == 0);
     CHECK(g.cfg.flyer_count >= 1);
     g.shield = 4;
     g.spawned = g.cfg.enemy_count + g.cfg.flyer_count;
     g.spawn_timer = 1000.0f;
     game_update(&g, &idle, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
-    CHECK(g.shield == 5);
+    CHECK(g.shield == 4);
 }
 
 static void test_scores_table(void)

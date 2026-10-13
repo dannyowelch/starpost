@@ -20,6 +20,7 @@ typedef struct {
     int b;
     int x;
     int y;
+    int lb;
     int rb;
     float rt;
     float lt;

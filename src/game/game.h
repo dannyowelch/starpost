@@ -8,7 +8,7 @@
 #define STARPOST_MAX_ENEMIES 64
 #define STARPOST_SHIELD_MAX 8
 #define STARPOST_SHIELD_DRAIN 1
-#define STARPOST_SHIELD_RECHARGE 2
+#define STARPOST_SHIELD_RECHARGE 0
 #define STARPOST_SCORE_KILL 100
 #define STARPOST_SCORE_FLYER 300
 #define STARPOST_SCORE_WAVE 500
@@ -44,6 +44,8 @@ typedef struct {
     int energize_cost;
     float energize_time;
     int slow_cost;
+    int repair_cost;
+    float repair_glow;
     float slow_time;
     float slow_factor;
     float deny_time;
@@ -89,6 +91,7 @@ typedef struct {
     bool spread;
     bool energize;
     bool slow;
+    bool repair;
     bool confirm;
 } InputFrame;
 
@@ -128,7 +131,8 @@ typedef enum {
     GAME_SND_SPREAD,
     GAME_SND_ENERGIZE,
     GAME_SND_SLOW,
-    GAME_SND_DENY
+    GAME_SND_DENY,
+    GAME_SND_REPAIR
 } GameSnd;
 
 #define GAME_SND_MAX 24
@@ -146,6 +150,7 @@ typedef struct {
     float turn_timer;
     float zap_flash;
     float deny_flash;
+    float repair_flash;
     float energize_timer;
     float slow_timer;
     int energy;
@@ -156,6 +161,7 @@ typedef struct {
     bool prev_spread;
     bool prev_energize;
     bool prev_slow;
+    bool prev_repair;
     int shield;
     int shield_max;
     int shield_recharge;
