@@ -501,6 +501,57 @@ static void test_superzap_charges(void)
     CHECK(g.zap_flash == 0.0f);
 }
 
+static int count_snd(const GameState *g, int id)
+{
+    int n = 0;
+    int i;
+    for (i = 0; i < g->snd_count; i++) {
+        if (g->snd[i] == (uint8_t)id)
+            n++;
+    }
+    return n;
+}
+
+static void test_held_fire_interval(void)
+{
+    GameState g;
+    InputFrame in;
+
+    CHECK(STARPOST_FIRE_COOLDOWN == 0.32f);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    place(&g, 0, 0, 0.30f, 0.0f);
+    place(&g, 1, 0, 0.55f, 0.0f);
+    place(&g, 2, 0, 0.80f, 0.0f);
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(!g.enemies[0].alive);
+    CHECK(g.enemies[1].alive);
+    CHECK(g.player.cooldown == STARPOST_FIRE_COOLDOWN);
+    CHECK(count_snd(&g, GAME_SND_FIRE) == 1);
+
+    game_update(&g, &in, STARPOST_FIRE_COOLDOWN * 0.5f);
+    CHECK(g.enemies[1].alive);
+    CHECK(count_snd(&g, GAME_SND_FIRE) == 0);
+    CHECK(g.player.cooldown > 0.0f);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    place(&g, 0, 0, 0.30f, 0.0f);
+    place(&g, 1, 0, 0.55f, 0.0f);
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+    game_update(&g, &in, STARPOST_DT);
+    game_update(&g, &in, STARPOST_FIRE_COOLDOWN);
+    CHECK(!g.enemies[0].alive);
+    CHECK(!g.enemies[1].alive);
+    CHECK(count_snd(&g, GAME_SND_FIRE) == 1);
+    CHECK(g.player.cooldown == STARPOST_FIRE_COOLDOWN);
+}
+
 static void test_game_over_skips_wave_clear(void)
 {
     GameState g;
@@ -532,6 +583,7 @@ int main(void)
     test_flyer_lane_and_spiral();
     test_flyer_hit_window_and_damage();
     test_superzap_charges();
+    test_held_fire_interval();
     if (fails) {
         fprintf(stderr, "%d/%d checks failed\n", fails, checks);
         return 1;

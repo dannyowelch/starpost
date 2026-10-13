@@ -18,3 +18,4 @@
 - **2026-10-13** — M4 superzap: Z or Shift. One charge granted per wave, unused charges carry, cap 4. A press with at least one enemy on screen spends a charge, kills them, and flashes. Zero charges does nothing. The HUD shows the stock.
 - **2026-10-13** — M5 audio: a built-in synth, no samples. The simulation emits `GameSnd` events; SDL only plays them. M mutes. `-` and `=` change gain. A living flyer holds a warble that releases when it is gone.
 - **2026-10-13** — M5 gamepad: hot-plug. D-pad and left stick step one lane (deadzone 0.35, then the keyboard repeat). No 8-way lane pick. South/A and RT fire. East/B and LT superzap. Start restarts after game over. Keyboard stays active.
+- **2026-10-13** — Held fire, keyboard and gamepad, waits `STARPOST_FIRE_COOLDOWN` between shots. Danny asked to slow it: 0.16 s became 0.32 s.
