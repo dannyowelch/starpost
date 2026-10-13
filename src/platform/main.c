@@ -1,4 +1,6 @@
+#include "audio/synth.h"
 #include "game/game.h"
+#include "input/pad.h"
 #include "render/render.h"
 
 #include <SDL3/SDL.h>
@@ -16,6 +18,8 @@ static void usage(void)
             "  Left/Right or A/D  rotate one lane\n"
             "  Space or J         fire\n"
             "  Z or Shift         superzap\n"
+            "  M                  mute\n"
+            "  - / =              volume\n"
             "  F2                 toggle bloom\n"
             "  Enter, R, or any other key except Esc  restart after game over\n"
             "  Esc                quit\n");
@@ -51,6 +55,84 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
         }
     }
     return 0;
+}
+
+static Synth synth;
+static SDL_AudioStream *audio_stream;
+static SDL_Gamepad *pad;
+static float volume = 0.55f;
+static int muted;
+
+static int flyer_count_alive(const GameState *g)
+{
+    int n = 0;
+    int i;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        if (g->enemies[i].alive && g->enemies[i].kind == ENEMY_FLYER)
+            n++;
+    }
+    return n;
+}
+
+static void audio_open(void)
+{
+    SDL_AudioSpec spec;
+    SDL_zero(spec);
+    spec.format = SDL_AUDIO_F32;
+    spec.channels = 1;
+    spec.freq = SYNTH_RATE;
+    synth_init(&synth, 1);
+    synth_set_gain(&synth, volume);
+    audio_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, NULL, NULL);
+    if (!audio_stream) {
+        fprintf(stderr, "audio: %s\n", SDL_GetError());
+        return;
+    }
+    if (!SDL_ResumeAudioStreamDevice(audio_stream))
+        fprintf(stderr, "audio resume: %s\n", SDL_GetError());
+}
+
+static void audio_consume(const GameState *g)
+{
+    int i;
+    if (!g)
+        return;
+    for (i = 0; i < g->snd_count; i++)
+        synth_trigger(&synth, g->snd[i]);
+    synth_set_flyers(&synth, flyer_count_alive(g));
+    synth_set_gain(&synth, muted ? 0.0f : volume);
+}
+
+static void audio_pump(void)
+{
+    float buf[1024];
+    int target;
+    int queued;
+    int need;
+    int frames;
+    if (!audio_stream)
+        return;
+    target = (SYNTH_RATE / 40) * (int)sizeof(float);
+    queued = SDL_GetAudioStreamQueued(audio_stream);
+    need = target - queued;
+    if (need < (int)sizeof(float))
+        return;
+    frames = need / (int)sizeof(float);
+    if (frames > (int)(sizeof buf / sizeof buf[0]))
+        frames = (int)(sizeof buf / sizeof buf[0]);
+    synth_render(&synth, buf, frames);
+    SDL_PutAudioStreamData(audio_stream, buf, frames * (int)sizeof(float));
+}
+
+static void volume_step(float delta)
+{
+    volume += delta;
+    if (volume < 0.0f)
+        volume = 0.0f;
+    if (volume > 1.0f)
+        volume = 1.0f;
+    muted = 0;
+    synth_set_gain(&synth, volume);
 }
 
 static int alive_count(const GameState *g)
@@ -147,6 +229,8 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
             arm_zap = 0;
         }
         game_update(&game, &in, STARPOST_DT);
+        audio_consume(&game);
+        audio_pump();
         if (window_pixels(window, &w, &h) != 0)
             return 1;
         render_draw(&game, w, h, STARPOST_DT);
@@ -270,9 +354,23 @@ static int run_interactive(SDL_Window *window)
         while (SDL_PollEvent(&ev)) {
             if (ev.type == SDL_EVENT_QUIT)
                 running = 0;
-            else if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) {
+            else if (ev.type == SDL_EVENT_GAMEPAD_ADDED) {
+                if (!pad)
+                    pad = SDL_OpenGamepad(ev.gdevice.which);
+            } else if (ev.type == SDL_EVENT_GAMEPAD_REMOVED) {
+                if (pad && SDL_GetGamepadID(pad) == ev.gdevice.which) {
+                    SDL_CloseGamepad(pad);
+                    pad = NULL;
+                }
+            } else if (ev.type == SDL_EVENT_KEY_DOWN && !ev.key.repeat) {
                 if (ev.key.scancode == SDL_SCANCODE_F2)
                     render_set_bloom(!render_bloom_enabled());
+                else if (ev.key.scancode == SDL_SCANCODE_M)
+                    muted = !muted;
+                else if (ev.key.scancode == SDL_SCANCODE_MINUS)
+                    volume_step(-0.1f);
+                else if (ev.key.scancode == SDL_SCANCODE_EQUALS)
+                    volume_step(0.1f);
                 else if (ev.key.scancode == SDL_SCANCODE_ESCAPE)
                     running = 0;
                 else if (game.state == STATE_GAME_OVER)
@@ -293,6 +391,23 @@ static int run_interactive(SDL_Window *window)
             in.zap = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_LSHIFT] ||
                      keys[SDL_SCANCODE_RSHIFT];
         }
+        if (pad) {
+            PadState axes;
+            Sint16 axis;
+            memset(&axes, 0, sizeof axes);
+            axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
+            axes.stick_x = axis / 32767.0f;
+            axes.dpad_left = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT);
+            axes.dpad_right = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
+            axes.a = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH);
+            axes.b = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST);
+            axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
+            axes.rt = axis > 0 ? axis / 32767.0f : 0.0f;
+            axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
+            axes.lt = axis > 0 ? axis / 32767.0f : 0.0f;
+            axes.start = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_START);
+            pad_apply(&in, &axes);
+        }
 
         now = SDL_GetPerformanceCounter();
         elapsed = (double)(now - prev) / (double)freq;
@@ -302,9 +417,13 @@ static int run_interactive(SDL_Window *window)
         acc += elapsed;
         while (acc >= (double)STARPOST_DT && steps < 8) {
             game_update(&game, &in, STARPOST_DT);
+            audio_consume(&game);
             acc -= (double)STARPOST_DT;
             steps++;
         }
+        if (steps == 0)
+            synth_set_flyers(&synth, flyer_count_alive(&game));
+        audio_pump();
 
         if (window_pixels(window, &w, &h) != 0)
             return 1;
@@ -341,6 +460,19 @@ int main(int argc, char **argv)
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
         return 1;
     }
+    if (!SDL_InitSubSystem(SDL_INIT_AUDIO))
+        fprintf(stderr, "audio init: %s\n", SDL_GetError());
+    else
+        audio_open();
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD))
+        fprintf(stderr, "gamepad init: %s\n", SDL_GetError());
+    {
+        int pad_count = 0;
+        SDL_JoystickID *pads = SDL_GetGamepads(&pad_count);
+        if (pads && pad_count > 0)
+            pad = SDL_OpenGamepad(pads[0]);
+        SDL_free(pads);
+    }
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
@@ -376,6 +508,10 @@ int main(int argc, char **argv)
 
     rc = scripted ? run_scripted(window, frames, shot, nobloom, burst, flyer, zapshot)
                   : run_interactive(window);
+    if (pad)
+        SDL_CloseGamepad(pad);
+    if (audio_stream)
+        SDL_DestroyAudioStream(audio_stream);
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();

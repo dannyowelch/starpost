@@ -138,6 +138,13 @@ void game_init(GameState *g, uint32_t seed)
     begin_wave(g, 1);
 }
 
+static void emit(GameState *g, uint8_t id)
+{
+    if (g->snd_count >= GAME_SND_MAX)
+        return;
+    g->snd[g->snd_count++] = id;
+}
+
 static void step_lane(GameState *g, int dir)
 {
     int lane = (int)g->player.lane + dir;
@@ -146,6 +153,7 @@ static void step_lane(GameState *g, int dir)
     else if (lane >= STARPOST_LANES)
         lane = 0;
     g->player.lane = (uint8_t)lane;
+    emit(g, GAME_SND_STEP);
 }
 
 static void turn_axis(GameState *g, bool held, bool *prev, int dir, float dt)
@@ -180,10 +188,13 @@ static void kill_enemy(GameState *g, Enemy *e)
         return;
     e->alive = false;
     g->killed += 1;
-    if (e->kind == ENEMY_FLYER)
+    if (e->kind == ENEMY_FLYER) {
         g->score += (uint32_t)STARPOST_SCORE_FLYER;
-    else
+        emit(g, GAME_SND_FLYER_KILL);
+    } else {
         g->score += (uint32_t)STARPOST_SCORE_KILL;
+        emit(g, GAME_SND_WALKER_KILL);
+    }
 }
 
 static void kill_nearest(GameState *g)
@@ -218,6 +229,7 @@ static void superzap(GameState *g)
         return;
     g->player.zaps = (uint8_t)(g->player.zaps - 1);
     g->zap_flash = STARPOST_ZAP_FLASH;
+    emit(g, GAME_SND_ZAP);
 }
 
 static int spawn_walker(GameState *g)
@@ -263,6 +275,7 @@ static int spawn_flyer(GameState *g)
     e->ang_speed = STARPOST_FLYER_ANG_SPEED;
     e->alive = true;
     g->flyers_spawned += 1;
+    emit(g, GAME_SND_FLYER_SPAWN);
     return 1;
 }
 
@@ -304,12 +317,15 @@ static void enter_clear(GameState *g)
     g->state = STATE_WAVE_CLEAR;
     g->clear_timer = STARPOST_WAVE_CLEAR_TIME;
     g->player.beam_timer = 0.0f;
+    emit(g, GAME_SND_WAVE);
 }
 
 void game_update(GameState *g, const InputFrame *in, float dt)
 {
     if (!g || !in)
         return;
+
+    g->snd_count = 0;
 
     if (g->state == STATE_GAME_OVER) {
         if (in->confirm) {
@@ -361,6 +377,7 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         g->player.beam_timer = STARPOST_BEAM_TIME;
         g->player.beam_lane = g->player.lane;
         g->player.cooldown = STARPOST_FIRE_COOLDOWN;
+        emit(g, GAME_SND_FIRE);
         kill_nearest(g);
     }
     if (in->zap && !g->prev_zap)
@@ -382,9 +399,13 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         e->alive = false;
         drain = (e->kind == ENEMY_FLYER) ? STARPOST_FLYER_DRAIN : STARPOST_SHIELD_DRAIN;
         g->shield -= drain;
+        emit(g, GAME_SND_BASE);
         if (g->shield <= 0) {
             g->shield = 0;
-            g->state = STATE_GAME_OVER;
+            if (g->state != STATE_GAME_OVER) {
+                g->state = STATE_GAME_OVER;
+                emit(g, GAME_SND_OVER);
+            }
         }
     }
 
@@ -400,6 +421,6 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         g->spawn_timer += g->cfg.spawn_interval;
     }
 
-    if (g->spawned >= g->cfg.enemy_count && !any_alive(g))
+    if (g->spawned >= g->cfg.enemy_count + g->cfg.flyer_count && !any_alive(g))
         enter_clear(g);
 }

@@ -72,6 +72,20 @@ typedef struct {
     float enemy_speed;
 } WaveConfig;
 
+typedef enum {
+    GAME_SND_STEP = 1,
+    GAME_SND_FIRE,
+    GAME_SND_WALKER_KILL,
+    GAME_SND_FLYER_SPAWN,
+    GAME_SND_FLYER_KILL,
+    GAME_SND_BASE,
+    GAME_SND_ZAP,
+    GAME_SND_WAVE,
+    GAME_SND_OVER
+} GameSnd;
+
+#define GAME_SND_MAX 24
+
 typedef struct {
     Enemy enemies[STARPOST_MAX_ENEMIES];
     Player player;
@@ -91,6 +105,8 @@ typedef struct {
     uint32_t score;
     uint32_t rng;
     GamePlayState state;
+    uint8_t snd_count;
+    uint8_t snd[GAME_SND_MAX];
 } GameState;
 
 WaveConfig wave_config(int wave);

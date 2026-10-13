@@ -1,4 +1,4 @@
-# Starpost Returns — Design Doc (v0.5, 2026-10-13)
+# Starpost Returns — Design Doc (v0.6, 2026-10-13)
 
 Unofficial sequel to Commodore's *Star Post* (VIC-20 1982 / C64 1983). Neon vector look (Tempest-style).
 Linux first (Omarchy/Arch, Wayland/Hyprland). C + SDL3 + OpenGL, no engine.
@@ -104,8 +104,8 @@ All three knobs live in `WAVE_TABLE` in `src/game/game.c`. For wave `n` (1-based
 Later waves spawn more walkers over a longer window, move them faster, and spawn them more often. Flyers are extra on top of the walker quota, spread through the wave, and the wave does not clear while one is alive. `wave_config` is a pure function.
 
 ## Controls
-- Keyboard: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, Z or Shift superzap, F2 toggles bloom, Enter/R (or any other key except Esc) restart after game over, Esc quit. Remappable `KeyMap` is later.
-- Gamepad is M5. D-pad and shoulders step one lane. The stick does not pick a lane directly. A fires. Start pauses (pause itself is M6).
+- Keyboard: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, Z or Shift superzap, M mute, `-`/`=` volume, F2 toggles bloom, Enter/R (or any other key except Esc) restart after game over, Esc quit. Remappable `KeyMap` is later.
+- Gamepad (SDL3, hot-plug): D-pad or left stick left/right steps one lane. The stick uses a deadzone of 0.35; past that it is a held direction and the same repeat as the keyboard applies. It does not pick a lane from the stick angle. South/A or the right trigger fires. East/B or the left trigger superzaps. Start restarts after game over. Keyboard and pad are OR'd together.
 - Superzap spends one carried charge to kill every enemy currently on screen, with a full-screen flash and the usual death bursts. Empty-handed, it does nothing. The HUD shows `ZAP` and the charge count.
 
 ## Rendering
@@ -117,13 +117,14 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes. Scanlines and vignette are not in this pass.
 
 ## Audio
-- M5: procedural synth in an SDL3 audio stream callback (square/saw + noise, simple envelopes) for fire, hit, base hit, wave clear.
-- Any music/SFX later must be Danny's or clearly licensed (CC0/CC-BY with credit in CREDITS.md). No ripped C64 audio.
+- Procedural synth in `src/audio` (square, saw, sine, noise, exponential envelopes). No sample files. `game_update` clears `GameState.snd` and appends `GameSnd` ids for that tick: lane step, beam fire, walker kill, flyer spawn, flyer kill, base hit, superzap, wave clear, game over. The platform drains the queue into the synth. A flyer that is alive also holds a low warble; it decays out when the last flyer is gone.
+- Playback is an SDL3 audio stream, mono float at 44100 Hz, kept about 25 ms ahead. The mix is `tanh` of the sum times a gain in `[0, 1]`, so a full stack stays inside (-1, 1). M mutes. `-` and `=` step the gain by 0.1 and unmute.
+- Any music later must be Danny's or clearly licensed (CC0/CC-BY with credit in CREDITS.md). No ripped C64 audio.
 
 ## Build
 - CMake (>=3.20). SDL3 via pkg-config (`pkg_check_modules`). OpenGL via CMake's FindOpenGL and the system `GL/gl.h` + `GL/glext.h` prototypes. No vendored glad and no third-party assets; Linux libGL exports the entry points we call.
 - `cmake -B build && cmake --build build`. Targets: `starpost`, `starpost_tests`.
-- Layout: `src/game/` (pure logic), `src/fx/` (fragments and shake), `src/platform/` (SDL, input), `src/render/` (GL), `tests/`.
+- Layout: `src/game/` (pure logic), `src/audio/` (synth), `src/input/` (pad mapping), `src/fx/` (fragments and shake), `src/platform/` (SDL), `src/render/` (GL), `tests/`.
 - Flags: `-std=c11 -Wall -Wextra -Werror`.
 
 ## Testing
@@ -136,6 +137,6 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - **M2 Waves & score**: `wave_config` scaling (count, speed, spawn rate) from one table, wave-clear screen, partial shield recharge, kill score and a wave bonus, HUD in a stroke vector font.
 - **M3 Neon pass**: HDR bloom (bright-pass, separable blur, additive composite, F2 toggle), halo-and-core lines, explosion fragments, short screen shake, a wider flashing beam.
 - **M4 Flyer + superzap**: spiralling flyer, lane-window hit rule, heavier base hit, superzap charges (1 per wave, accumulating, capped) with a screen flash.
-- **M5 Audio + gamepad**: procedural SFX, SDL3 gamepad. Shoulders and d-pad step one lane; no direct lane pick.
+- **M5 Audio + gamepad**: procedural SFX on an SDL3 stream, mute and volume, SDL3 gamepad with deadzone and hot-plug. One lane at a time.
 - **M6 Meta**: title screen, high scores saved to disk, pause, difficulty select (Beginner/Advanced/Hyper).
 - Later: power-ups, new enemy types, modes, faster frenetic pacing.
