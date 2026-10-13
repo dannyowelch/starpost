@@ -74,6 +74,8 @@ static void place(GameState *g, int slot, int lane, float dist, float speed)
     e->lane = (uint8_t)lane;
     e->dist = dist;
     e->speed = speed;
+    e->angle = 0.0f;
+    e->ang_speed = 0.0f;
     e->alive = true;
 }
 
@@ -332,6 +334,173 @@ static void test_recharge_cap_and_arrival(void)
                           STARPOST_SHIELD_RECHARGE);
 }
 
+static void test_flyer_lane_and_spiral(void)
+{
+    GameState g;
+    InputFrame in;
+    float start;
+    float sector = 6.2831853f / (float)STARPOST_LANES;
+    int lane;
+
+    for (lane = 0; lane < STARPOST_LANES; lane++)
+        CHECK(starpost_lane_from_angle(starpost_lane_center(lane)) == lane);
+
+    CHECK(starpost_lane_from_angle(starpost_lane_center(0) + sector) == 7);
+    CHECK(starpost_lane_from_angle(starpost_lane_center(1) - 0.02f) == 1);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.enemies[0].kind = ENEMY_FLYER;
+    g.enemies[0].alive = true;
+    g.enemies[0].dist = 0.80f;
+    g.enemies[0].speed = 0.10f;
+    g.enemies[0].ang_speed = STARPOST_FLYER_ANG_SPEED;
+    start = starpost_lane_center(0);
+    g.enemies[0].angle = start;
+    g.enemies[0].lane = (uint8_t)starpost_lane_from_angle(start);
+    CHECK(g.enemies[0].lane == 0);
+
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, 0.50f);
+    CHECK(g.enemies[0].alive);
+    CHECK(g.enemies[0].dist == 0.80f - 0.10f * 0.50f);
+    CHECK(g.enemies[0].angle == start + STARPOST_FLYER_ANG_SPEED * 0.50f);
+    CHECK(g.enemies[0].lane == (uint8_t)starpost_lane_from_angle(g.enemies[0].angle));
+    CHECK(g.enemies[0].lane == 7);
+}
+
+static void test_flyer_hit_window_and_damage(void)
+{
+    GameState g;
+    InputFrame in;
+    float center = starpost_lane_center(0);
+    float sector = 6.2831853f / (float)STARPOST_LANES;
+    float half = 0.5f * STARPOST_HIT_WINDOW * sector;
+    float outside = center - (half + 0.05f);
+
+    CHECK(STARPOST_HIT_WINDOW > 0.0f);
+    CHECK(STARPOST_HIT_WINDOW < 1.0f);
+    CHECK(starpost_flyer_in_lane(center, 0));
+    CHECK(!starpost_flyer_in_lane(starpost_lane_center(3), 0));
+    CHECK(starpost_flyer_in_lane(center - (half - 0.01f), 0));
+    CHECK(!starpost_flyer_in_lane(outside, 0));
+    CHECK(starpost_lane_from_angle(outside) == 0);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.enemies[0].kind = ENEMY_FLYER;
+    g.enemies[0].alive = true;
+    g.enemies[0].dist = 0.60f;
+    g.enemies[0].speed = 0.0f;
+    g.enemies[0].ang_speed = 0.0f;
+    g.enemies[0].angle = outside;
+    g.enemies[0].lane = (uint8_t)starpost_lane_from_angle(outside);
+    g.player.lane = 0;
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.enemies[0].alive);
+    CHECK(g.score == 0);
+    CHECK(g.player.beam_timer == STARPOST_BEAM_TIME);
+
+    g.enemies[0].angle = center;
+    g.enemies[0].lane = 0;
+    g.player.cooldown = 0.0f;
+    g.player.beam_timer = 0.0f;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(!g.enemies[0].alive);
+    CHECK(g.score == (uint32_t)STARPOST_SCORE_FLYER);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.enemies[0].kind = ENEMY_FLYER;
+    g.enemies[0].alive = true;
+    g.enemies[0].dist = 0.02f;
+    g.enemies[0].speed = 1.0f;
+    g.enemies[0].ang_speed = 0.0f;
+    g.enemies[0].angle = center;
+    CHECK(STARPOST_FLYER_DRAIN > STARPOST_SHIELD_DRAIN);
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, 0.05f);
+    CHECK(!g.enemies[0].alive);
+    CHECK(g.shield == STARPOST_SHIELD_MAX - STARPOST_FLYER_DRAIN);
+    CHECK(g.state == STATE_PLAYING);
+    CHECK(g.score == 0);
+}
+
+static void test_superzap_charges(void)
+{
+    GameState g;
+    InputFrame in;
+
+    game_init(&g, 1);
+    CHECK(g.player.zaps == 1);
+    CHECK(g.cfg.flyer_count == 0);
+    CHECK(wave_config(2).flyer_count >= 1);
+    CHECK(wave_config(4).flyer_count > wave_config(2).flyer_count);
+    CHECK(wave_config(100).flyer_count == wave_config(101).flyer_count);
+    CHECK(wave_config(100).flyer_count <= 4);
+
+    g.state = STATE_WAVE_CLEAR;
+    g.clear_timer = 0.01f;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, 0.05f);
+    CHECK(g.state == STATE_PLAYING);
+    CHECK(g.cfg.wave == 2);
+    CHECK(g.player.zaps == 2);
+
+    g.player.zaps = STARPOST_ZAP_MAX;
+    g.state = STATE_WAVE_CLEAR;
+    g.clear_timer = 0.01f;
+    g.cfg.wave = 2;
+    game_update(&g, &in, 0.05f);
+    CHECK(g.cfg.wave == 3);
+    CHECK(g.player.zaps == STARPOST_ZAP_MAX);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.player.zaps = 1;
+    place(&g, 0, 2, 0.50f, 0.0f);
+    g.enemies[1].kind = ENEMY_FLYER;
+    g.enemies[1].alive = true;
+    g.enemies[1].lane = 4;
+    g.enemies[1].dist = 0.40f;
+    g.enemies[1].speed = 0.0f;
+    g.enemies[1].angle = starpost_lane_center(4);
+    g.enemies[1].ang_speed = 0.0f;
+    memset(&in, 0, sizeof in);
+    in.zap = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(!g.enemies[0].alive);
+    CHECK(!g.enemies[1].alive);
+    CHECK(g.player.zaps == 0);
+    CHECK(g.score == (uint32_t)STARPOST_SCORE_KILL + (uint32_t)STARPOST_SCORE_FLYER);
+    CHECK(g.zap_flash == STARPOST_ZAP_FLASH);
+    CHECK(g.state == STATE_PLAYING);
+
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.player.zaps == 0);
+    CHECK(g.score == (uint32_t)STARPOST_SCORE_KILL + (uint32_t)STARPOST_SCORE_FLYER);
+
+    game_init(&g, 4);
+    g.spawn_timer = 1000.0f;
+    g.player.zaps = 0;
+    place(&g, 0, 1, 0.30f, 0.0f);
+    g.enemies[1].kind = ENEMY_FLYER;
+    g.enemies[1].alive = true;
+    g.enemies[1].dist = 0.50f;
+    g.enemies[1].speed = 0.0f;
+    g.enemies[1].angle = starpost_lane_center(2);
+    memset(&in, 0, sizeof in);
+    in.zap = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.enemies[0].alive);
+    CHECK(g.enemies[1].alive);
+    CHECK(g.player.zaps == 0);
+    CHECK(g.score == 0);
+    CHECK(g.zap_flash == 0.0f);
+}
+
 static void test_game_over_skips_wave_clear(void)
 {
     GameState g;
@@ -360,6 +529,9 @@ int main(void)
     test_wave_clear_score_and_transition();
     test_recharge_cap_and_arrival();
     test_game_over_skips_wave_clear();
+    test_flyer_lane_and_spiral();
+    test_flyer_hit_window_and_damage();
+    test_superzap_charges();
     if (fails) {
         fprintf(stderr, "%d/%d checks failed\n", fails, checks);
         return 1;
