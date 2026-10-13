@@ -13,3 +13,4 @@
 - **2026-10-13** — M2 wave tuning is one table in `src/game/game.c`: count `5 + 3i` (cap 48), speed `0.15 + 0.025i` (cap 0.70), spawn interval `0.90 - 0.04i` (minimum 0.22), `i = wave - 1`. Later waves are longer, faster, and denser.
 - **2026-10-13** — Score is 100 per kill and 500 on wave clear. Arrivals do not score. Shield recharge is applied on clear and capped at max. Empty shield skips the clear. The clear screen holds for 1.5 s, then the next wave starts.
 - **2026-10-13** — The HUD (wave, score, shield bar) and the clear screen use a small stroke vector font in `src/render/render.c`. No font files.
+- **2026-10-13** — M3 neon: scene in an RGBA16F target, bright-pass plus a 5-tap separable Gaussian at quarter resolution, added back and tonemapped. F2 toggles bloom. Line fragments and screen shake live in `src/fx`, spawned from a renderer frame diff, not from game-logic fields. The HUD does not shake.

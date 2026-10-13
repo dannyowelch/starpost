@@ -1,5 +1,7 @@
 #include "render.h"
 
+#include "fx/fx.h"
+
 #define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
 #include <GL/glext.h>
@@ -24,8 +26,40 @@ static GLuint program;
 static GLuint vao;
 static GLuint vbo;
 static GLint scale_loc;
-static Vert play_verts[4096];
-static Vert hud_verts[2048];
+static GLint shake_loc;
+static GLuint fs_prog_bright;
+static GLuint fs_prog_blur;
+static GLuint fs_prog_comp;
+static GLint bright_tex_loc;
+static GLint blur_tex_loc;
+static GLint blur_dir_loc;
+static GLint comp_scene_loc;
+static GLint comp_bloom_loc;
+static GLint comp_strength_loc;
+static GLuint fs_vao;
+static GLuint fs_vbo;
+static GLuint scene_tex;
+static GLuint scene_fbo;
+static GLuint bloom_tex[2];
+static GLuint bloom_fbo[2];
+static int fb_w;
+static int fb_h;
+static int bloom_w;
+static int bloom_h;
+static int bloom_on = 1;
+static int bloom_ok;
+static FxState fx;
+static int snap_valid;
+static int snap_shield;
+static uint32_t snap_score;
+static GamePlayState snap_state;
+static struct {
+    int alive;
+    uint8_t lane;
+    float dist;
+} snap[STARPOST_MAX_ENEMIES];
+static Vert play_verts[8192];
+static Vert hud_verts[8192];
 static Batch play_batch;
 static Batch hud_batch;
 static Batch *batch;
@@ -35,9 +69,10 @@ static const char *VS =
     "layout(location = 0) in vec2 a_pos;\n"
     "layout(location = 1) in vec3 a_color;\n"
     "uniform vec2 u_scale;\n"
+    "uniform vec2 u_shake;\n"
     "out vec3 v_color;\n"
     "void main() {\n"
-    "    gl_Position = vec4(a_pos * u_scale, 0.0, 1.0);\n"
+    "    gl_Position = vec4(a_pos * u_scale + u_shake, 0.0, 1.0);\n"
     "    v_color = a_color;\n"
     "}\n";
 
@@ -46,6 +81,58 @@ static const char *FS =
     "in vec3 v_color;\n"
     "out vec4 frag;\n"
     "void main() { frag = vec4(v_color, 1.0); }\n";
+
+static const char *FS_VS =
+    "#version 330 core\n"
+    "layout(location = 0) in vec2 a_pos;\n"
+    "layout(location = 1) in vec2 a_uv;\n"
+    "out vec2 v_uv;\n"
+    "void main() {\n"
+    "    gl_Position = vec4(a_pos, 0.0, 1.0);\n"
+    "    v_uv = a_uv;\n"
+    "}\n";
+
+static const char *BRIGHT_FS =
+    "#version 330 core\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    "uniform sampler2D u_tex;\n"
+    "void main() {\n"
+    "    vec3 c = texture(u_tex, v_uv).rgb;\n"
+    "    float l = max(c.r, max(c.g, c.b));\n"
+    "    float keep = smoothstep(0.85, 1.60, l);\n"
+    "    frag = vec4(c * keep, 1.0);\n"
+    "}\n";
+
+static const char *BLUR_FS =
+    "#version 330 core\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    "uniform sampler2D u_tex;\n"
+    "uniform vec2 u_dir;\n"
+    "void main() {\n"
+    "    vec3 c = texture(u_tex, v_uv).rgb * 0.227027;\n"
+    "    c += texture(u_tex, v_uv + u_dir * 1.3846153846).rgb * 0.3162162162;\n"
+    "    c += texture(u_tex, v_uv - u_dir * 1.3846153846).rgb * 0.3162162162;\n"
+    "    c += texture(u_tex, v_uv + u_dir * 3.2307692308).rgb * 0.0702702703;\n"
+    "    c += texture(u_tex, v_uv - u_dir * 3.2307692308).rgb * 0.0702702703;\n"
+    "    frag = vec4(c, 1.0);\n"
+    "}\n";
+
+static const char *COMP_FS =
+    "#version 330 core\n"
+    "in vec2 v_uv;\n"
+    "out vec4 frag;\n"
+    "uniform sampler2D u_scene;\n"
+    "uniform sampler2D u_bloom;\n"
+    "uniform float u_strength;\n"
+    "void main() {\n"
+    "    vec3 scene = texture(u_scene, v_uv).rgb;\n"
+    "    vec3 bloom = texture(u_bloom, v_uv).rgb;\n"
+    "    vec3 col = scene + bloom * u_strength;\n"
+    "    col = col / (vec3(1.0) + col);\n"
+    "    frag = vec4(col, 1.0);\n"
+    "}\n";
 
 static int compile_shader(GLuint shader, const char *src)
 {
@@ -62,35 +149,46 @@ static int compile_shader(GLuint shader, const char *src)
     return -1;
 }
 
-int render_init(void)
+static GLuint link_program(const char *vs_src, const char *fs_src)
 {
     GLuint vs;
     GLuint fs;
+    GLuint prog;
     GLint ok = 0;
     char log[1024];
 
     vs = glCreateShader(GL_VERTEX_SHADER);
     fs = glCreateShader(GL_FRAGMENT_SHADER);
-    if (!vs || !fs) {
-        fprintf(stderr, "glCreateShader failed\n");
-        return -1;
-    }
-    if (compile_shader(vs, VS) || compile_shader(fs, FS))
-        return -1;
-
-    program = glCreateProgram();
-    glAttachShader(program, vs);
-    glAttachShader(program, fs);
-    glLinkProgram(program);
-    glGetProgramiv(program, GL_LINK_STATUS, &ok);
+    if (!vs || !fs || compile_shader(vs, vs_src) || compile_shader(fs, fs_src))
+        return 0;
+    prog = glCreateProgram();
+    glAttachShader(prog, vs);
+    glAttachShader(prog, fs);
+    glLinkProgram(prog);
+    glGetProgramiv(prog, GL_LINK_STATUS, &ok);
     glDeleteShader(vs);
     glDeleteShader(fs);
     if (!ok) {
-        glGetProgramInfoLog(program, (GLsizei)sizeof log, NULL, log);
+        glGetProgramInfoLog(prog, (GLsizei)sizeof log, NULL, log);
         fprintf(stderr, "link: %s\n", log);
-        return -1;
+        glDeleteProgram(prog);
+        return 0;
     }
+    return prog;
+}
+
+int render_init(void)
+{
+    static const float fs_tri[] = {
+        -1.0f, -1.0f, 0.0f, 0.0f, 3.0f, -1.0f, 2.0f, 0.0f, -1.0f, 3.0f, 0.0f, 2.0f,
+    };
+
+    fx_init(&fx);
+    program = link_program(VS, FS);
+    if (!program)
+        return -1;
     scale_loc = glGetUniformLocation(program, "u_scale");
+    shake_loc = glGetUniformLocation(program, "u_shake");
 
     glGenVertexArrays(1, &vao);
     glGenBuffers(1, &vbo);
@@ -101,8 +199,55 @@ int render_init(void)
     glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, sizeof(Vert), (void *)0);
     glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, sizeof(Vert),
                           (void *)(2 * sizeof(float)));
+
+    fs_prog_bright = link_program(FS_VS, BRIGHT_FS);
+    fs_prog_blur = link_program(FS_VS, BLUR_FS);
+    fs_prog_comp = link_program(FS_VS, COMP_FS);
+    if (!fs_prog_bright || !fs_prog_blur || !fs_prog_comp) {
+        fprintf(stderr, "bloom shaders unavailable\n");
+        bloom_ok = 0;
+    } else {
+        bright_tex_loc = glGetUniformLocation(fs_prog_bright, "u_tex");
+        blur_tex_loc = glGetUniformLocation(fs_prog_blur, "u_tex");
+        blur_dir_loc = glGetUniformLocation(fs_prog_blur, "u_dir");
+        comp_scene_loc = glGetUniformLocation(fs_prog_comp, "u_scene");
+        comp_bloom_loc = glGetUniformLocation(fs_prog_comp, "u_bloom");
+        comp_strength_loc = glGetUniformLocation(fs_prog_comp, "u_strength");
+        glGenVertexArrays(1, &fs_vao);
+        glGenBuffers(1, &fs_vbo);
+        glBindVertexArray(fs_vao);
+        glBindBuffer(GL_ARRAY_BUFFER, fs_vbo);
+        glBufferData(GL_ARRAY_BUFFER, sizeof fs_tri, fs_tri, GL_STATIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(0, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei)sizeof(float), (void *)0);
+        glVertexAttribPointer(1, 2, GL_FLOAT, GL_FALSE, 4 * (GLsizei)sizeof(float),
+                              (void *)(2 * sizeof(float)));
+        bloom_ok = 1;
+    }
     glBindVertexArray(0);
+    {
+        const GLubyte *renderer = glGetString(GL_RENDERER);
+        const GLubyte *version = glGetString(GL_VERSION);
+        fprintf(stderr, "GL %s / %s\n", renderer ? (const char *)renderer : "?",
+                version ? (const char *)version : "?");
+    }
     return 0;
+}
+
+void render_set_bloom(int enabled)
+{
+    bloom_on = enabled ? 1 : 0;
+}
+
+int render_bloom_enabled(void)
+{
+    return bloom_on;
+}
+
+int render_shard_count(void)
+{
+    return fx_count(&fx);
 }
 
 static void vert(float x, float y, float r, float g, float b)
@@ -128,8 +273,8 @@ static void tri(float x0, float y0, float x1, float y1, float x2, float y2,
     vert(x2, y2, r, g, b);
 }
 
-static void stroke(float x0, float y0, float x1, float y1, float half,
-                   float r, float g, float b)
+static void stroke_raw(float x0, float y0, float x1, float y1, float half,
+                       float r, float g, float b)
 {
     float dx = x1 - x0;
     float dy = y1 - y0;
@@ -141,6 +286,13 @@ static void stroke(float x0, float y0, float x1, float y1, float half,
     py = dx / len * half;
     tri(x0 - px, y0 - py, x0 + px, y0 + py, x1 + px, y1 + py, r, g, b);
     tri(x0 - px, y0 - py, x1 + px, y1 + py, x1 - px, y1 - py, r, g, b);
+}
+
+static void stroke(float x0, float y0, float x1, float y1, float half,
+                   float r, float g, float b)
+{
+    stroke_raw(x0, y0, x1, y1, half * 2.5f, r * 0.42f, g * 0.42f, b * 0.42f);
+    stroke_raw(x0, y0, x1, y1, half, r, g, b);
 }
 
 static void polar(int lane, float radius, float *x, float *y)
@@ -176,13 +328,13 @@ static void draw_tracer(int lane)
     float x = c * 1.0f;
     float y = s * 1.0f;
     float reach = 0.055f;
-    stroke(x + s * reach, y - c * reach, x - s * reach, y + c * reach, 0.016f,
-           0.45f, 1.0f, 1.0f);
+    stroke(x + s * reach, y - c * reach, x - s * reach, y + c * reach, 0.018f,
+           0.55f, 1.45f, 1.7f);
 }
 
 static void draw_beam(const GameState *g)
 {
-    float age, env, half, cr, cg, cb, x0, y0, x1, y1;
+    float age, env, flash, half, x0, y0, x1, y1;
     if (g->player.beam_timer <= 0.0f)
         return;
     age = 1.0f - (g->player.beam_timer / STARPOST_BEAM_TIME);
@@ -190,16 +342,17 @@ static void draw_beam(const GameState *g)
         age = 0.0f;
     if (age > 1.0f)
         age = 1.0f;
-    env = (age < 0.22f) ? (age / 0.22f) : (1.0f - (age - 0.22f) / 0.78f);
+    env = (age < 0.16f) ? (age / 0.16f) : (1.0f - (age - 0.16f) / 0.84f);
     if (env < 0.0f)
         env = 0.0f;
-    half = 0.006f + 0.055f * env;
-    cr = 0.55f + 0.45f * env;
-    cg = 0.80f + 0.20f * env;
-    cb = 1.0f;
-    polar(g->player.beam_lane, 0.09f, &x0, &y0);
-    polar(g->player.beam_lane, 0.96f, &x1, &y1);
-    stroke(x0, y0, x1, y1, half, cr, cg, cb);
+    flash = (age < 0.14f) ? (1.0f - age / 0.14f) : 0.0f;
+    half = 0.010f + 0.055f * env + 0.04f * flash;
+    polar(g->player.beam_lane, 0.08f, &x0, &y0);
+    polar(g->player.beam_lane, 0.98f, &x1, &y1);
+    stroke_raw(x0, y0, x1, y1, half * 1.55f, 0.22f + 0.55f * flash, 0.45f + 0.35f * flash,
+               0.75f + 0.55f * flash);
+    stroke_raw(x0, y0, x1, y1, half * 0.38f, 2.0f + 2.4f * flash, 2.2f + 1.8f * flash,
+               2.6f + 2.0f * flash);
 }
 
 /* 4x6 grid, up to 6 strokes. A 0,0,0,0 stroke is unused. */
@@ -268,7 +421,9 @@ static void draw_glyph(float x, float y, float h, int index, float r, float g, f
         s += 4;
         if (x0 == x1 && y0 == y1)
             continue;
-        stroke(x + x0 * u, y + y0 * u, x + x1 * u, y + y1 * u, half, r, g, b);
+        stroke_raw(x + x0 * u, y + y0 * u, x + x1 * u, y + y1 * u, half * 1.7f,
+                   r * 0.45f, g * 0.45f, b * 0.45f);
+        stroke_raw(x + x0 * u, y + y0 * u, x + x1 * u, y + y1 * u, half, r, g, b);
     }
 }
 
@@ -344,31 +499,255 @@ static void draw_walker(const Enemy *e)
     float rad = 0.09f + e->dist * 0.83f;
     float x, y;
     polar(e->lane, rad, &x, &y);
-    stroke(x, y + 0.035f, x + 0.035f, y, 0.008f, 1.0f, 0.15f, 0.55f);
-    stroke(x + 0.035f, y, x, y - 0.035f, 0.008f, 1.0f, 0.15f, 0.55f);
-    stroke(x, y - 0.035f, x - 0.035f, y, 0.008f, 1.0f, 0.15f, 0.55f);
-    stroke(x - 0.035f, y, x, y + 0.035f, 0.008f, 1.0f, 0.15f, 0.55f);
+    stroke(x, y + 0.035f, x + 0.035f, y, 0.009f, 1.65f, 0.16f, 0.95f);
+    stroke(x + 0.035f, y, x, y - 0.035f, 0.009f, 1.65f, 0.16f, 0.95f);
+    stroke(x, y - 0.035f, x - 0.035f, y, 0.009f, 1.65f, 0.16f, 0.95f);
+    stroke(x - 0.035f, y, x, y + 0.035f, 0.009f, 1.65f, 0.16f, 0.95f);
 }
 
-void render_draw(const GameState *g, int width, int height)
+static void walker_center(int lane, float dist, float *x, float *y)
 {
-    float sx = 0.92f;
-    float sy = 0.92f;
-    int over = g->state == STATE_GAME_OVER;
-    int clearing = g->state == STATE_WAVE_CLEAR;
-    float dim = clearing ? 0.35f : 1.0f;
-    float base_r = over ? 1.0f : 0.45f;
-    float base_g = over ? 0.12f : 1.0f;
-    float base_b = over ? 0.18f : 1.0f;
+    polar(lane, 0.09f + dist * 0.83f, x, y);
+}
 
+static void draw_shards(void)
+{
+    int i;
+    for (i = 0; i < FX_MAX; i++) {
+        const FxShard *s = &fx.shards[i];
+        float k;
+        if (s->life <= 0.0f)
+            continue;
+        k = s->life;
+        stroke_raw(s->x, s->y, s->x - s->vx * 0.07f, s->y - s->vy * 0.07f, 0.008f * (0.45f + k),
+                   s->r * k * 1.9f, s->g * k * 1.9f, s->b * k * 1.9f);
+    }
+}
+
+static void remember(const GameState *g)
+{
+    int i;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        snap[i].alive = g->enemies[i].alive ? 1 : 0;
+        snap[i].lane = g->enemies[i].lane;
+        snap[i].dist = g->enemies[i].dist;
+    }
+    snap_shield = g->shield;
+    snap_score = g->score;
+    snap_state = g->state;
+    snap_valid = 1;
+}
+
+static void observe(const GameState *g, float dt)
+{
+    int i;
+    if (dt < 0.0f)
+        dt = 0.0f;
+    if (snap_valid && g->score >= snap_score &&
+        !(snap_state == STATE_GAME_OVER && g->state == STATE_PLAYING)) {
+        for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+            float x, y;
+            if (!snap[i].alive || g->enemies[i].alive || snap[i].dist <= 0.05f)
+                continue;
+            walker_center(snap[i].lane, snap[i].dist, &x, &y);
+            fx_burst(&fx, x, y, 1.55f, 0.2f, 0.95f);
+        }
+        if (g->shield < snap_shield)
+            fx_hit(&fx);
+    }
+    fx_update(&fx, dt);
+    remember(g);
+}
+
+static void destroy_targets(void)
+{
+    if (scene_fbo)
+        glDeleteFramebuffers(1, &scene_fbo);
+    if (scene_tex)
+        glDeleteTextures(1, &scene_tex);
+    if (bloom_fbo[0])
+        glDeleteFramebuffers(2, bloom_fbo);
+    if (bloom_tex[0])
+        glDeleteTextures(2, bloom_tex);
+    scene_fbo = 0;
+    scene_tex = 0;
+    bloom_fbo[0] = bloom_fbo[1] = 0;
+    bloom_tex[0] = bloom_tex[1] = 0;
+    fb_w = 0;
+    fb_h = 0;
+}
+
+static GLuint make_color_tex(int w, int h)
+{
+    GLuint tex = 0;
+    glGenTextures(1, &tex);
+    glBindTexture(GL_TEXTURE_2D, tex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, w, h, 0, GL_RGBA, GL_HALF_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
+    return tex;
+}
+
+static int attach_fbo(GLuint *fbo, GLuint tex)
+{
+    glGenFramebuffers(1, fbo);
+    glBindFramebuffer(GL_FRAMEBUFFER, *fbo);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, tex, 0);
+    if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE) {
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        return 0;
+    }
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    return 1;
+}
+
+static int ensure_targets(int width, int height)
+{
+    int bw;
+    int bh;
+    if (!bloom_ok)
+        return 0;
+    if (scene_fbo && width == fb_w && height == fb_h)
+        return 1;
+    destroy_targets();
+    bw = width / 4;
+    bh = height / 4;
+    if (bw < 1)
+        bw = 1;
+    if (bh < 1)
+        bh = 1;
+    scene_tex = make_color_tex(width, height);
+    bloom_tex[0] = make_color_tex(bw, bh);
+    bloom_tex[1] = make_color_tex(bw, bh);
+    if (!attach_fbo(&scene_fbo, scene_tex) || !attach_fbo(&bloom_fbo[0], bloom_tex[0]) ||
+        !attach_fbo(&bloom_fbo[1], bloom_tex[1])) {
+        fprintf(stderr, "HDR framebuffer unavailable, bloom off\n");
+        destroy_targets();
+        bloom_ok = 0;
+        return 0;
+    }
+    fb_w = width;
+    fb_h = height;
+    bloom_w = bw;
+    bloom_h = bh;
+    return 1;
+}
+
+static void draw_fullscreen(void)
+{
+    glBindVertexArray(fs_vao);
+    glDrawArrays(GL_TRIANGLES, 0, 3);
+}
+
+static void present(int width, int height, float sx, float sy)
+{
+    float shake_x = 0.0f;
+    float shake_y = 0.0f;
+    fx_shake_offset(&fx, &shake_x, &shake_y);
+
+    glDisable(GL_DEPTH_TEST);
+    glEnable(GL_BLEND);
+    glBlendFunc(GL_ONE, GL_ONE);
+    glUseProgram(program);
+    glBindVertexArray(vao);
+    glBindBuffer(GL_ARRAY_BUFFER, vbo);
+
+    if (ensure_targets(width, height)) {
+        glBindFramebuffer(GL_FRAMEBUFFER, scene_fbo);
+        glViewport(0, 0, width, height);
+        glClearColor(0.012f, 0.014f, 0.03f, 1.0f);
+        glClear(GL_COLOR_BUFFER_BIT);
+        glUniform2f(scale_loc, sx, sy);
+        glUniform2f(shake_loc, shake_x, shake_y);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(play_batch.count * (int)sizeof(Vert)),
+                     play_verts, GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, play_batch.count);
+        if (hud_batch.count > 0) {
+            glUniform2f(scale_loc, 1.0f, 1.0f);
+            glUniform2f(shake_loc, 0.0f, 0.0f);
+            glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(hud_batch.count * (int)sizeof(Vert)),
+                         hud_verts, GL_DYNAMIC_DRAW);
+            glDrawArrays(GL_TRIANGLES, 0, hud_batch.count);
+        }
+
+        glDisable(GL_BLEND);
+        glBindFramebuffer(GL_FRAMEBUFFER, bloom_fbo[0]);
+        glViewport(0, 0, bloom_w, bloom_h);
+        glUseProgram(fs_prog_bright);
+        glUniform1i(bright_tex_loc, 0);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scene_tex);
+        draw_fullscreen();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, bloom_fbo[1]);
+        glUseProgram(fs_prog_blur);
+        glUniform1i(blur_tex_loc, 0);
+        glUniform2f(blur_dir_loc, 1.0f / (float)bloom_w, 0.0f);
+        glBindTexture(GL_TEXTURE_2D, bloom_tex[0]);
+        draw_fullscreen();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, bloom_fbo[0]);
+        glUniform2f(blur_dir_loc, 0.0f, 1.0f / (float)bloom_h);
+        glBindTexture(GL_TEXTURE_2D, bloom_tex[1]);
+        draw_fullscreen();
+
+        glBindFramebuffer(GL_FRAMEBUFFER, 0);
+        glViewport(0, 0, width, height);
+        glUseProgram(fs_prog_comp);
+        glUniform1i(comp_scene_loc, 0);
+        glUniform1i(comp_bloom_loc, 1);
+        glUniform1f(comp_strength_loc, bloom_on ? 1.15f : 0.0f);
+        glActiveTexture(GL_TEXTURE0);
+        glBindTexture(GL_TEXTURE_2D, scene_tex);
+        glActiveTexture(GL_TEXTURE1);
+        glBindTexture(GL_TEXTURE_2D, bloom_tex[0]);
+        draw_fullscreen();
+        glActiveTexture(GL_TEXTURE0);
+        return;
+    }
+
+    glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glViewport(0, 0, width, height);
+    glClearColor(0.012f, 0.014f, 0.03f, 1.0f);
+    glClear(GL_COLOR_BUFFER_BIT);
+    glUniform2f(scale_loc, sx, sy);
+    glUniform2f(shake_loc, shake_x, shake_y);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(play_batch.count * (int)sizeof(Vert)),
+                 play_verts, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, play_batch.count);
+    if (hud_batch.count > 0) {
+        glUniform2f(scale_loc, 1.0f, 1.0f);
+        glUniform2f(shake_loc, 0.0f, 0.0f);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(hud_batch.count * (int)sizeof(Vert)),
+                     hud_verts, GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, hud_batch.count);
+    }
+}
+
+static void view_scale(int width, int height, float *sx, float *sy)
+{
+    *sx = 0.92f;
+    *sy = 0.92f;
     if (width < 1)
         width = 1;
     if (height < 1)
         height = 1;
     if (width > height)
-        sx *= (float)height / (float)width;
+        *sx *= (float)height / (float)width;
     else if (height > width)
-        sy *= (float)width / (float)height;
+        *sy *= (float)width / (float)height;
+}
+
+static void build_scene(const GameState *g)
+{
+    int over = g->state == STATE_GAME_OVER;
+    int clearing = g->state == STATE_WAVE_CLEAR;
+    float dim = clearing ? 0.35f : 1.0f;
+    float base_r = over ? 1.7f : 0.55f;
+    float base_g = over ? 0.18f : 1.55f;
+    float base_b = over ? 0.28f : 1.75f;
 
     play_batch.verts = play_verts;
     play_batch.cap = (int)(sizeof play_verts / sizeof play_verts[0]);
@@ -378,11 +757,11 @@ void render_draw(const GameState *g, int width, int height)
     hud_batch.count = 0;
     batch = &play_batch;
 
-    ring(0.92f, 0.005f, 0.08f * dim, 0.16f * dim, 0.42f * dim);
-    ring(0.075f, 0.010f, base_r, base_g, base_b);
+    ring(0.92f, 0.006f, 0.16f * dim, 0.28f * dim, 0.85f * dim);
+    ring(0.075f, 0.012f, base_r, base_g, base_b);
     for (int i = 0; i < STARPOST_LANES; i++)
-        spoke(i, 0.09f, 0.92f, 0.006f, 0.10f * dim, 0.22f * dim, 0.55f * dim);
-    spoke(g->player.lane, 0.09f, 0.92f, 0.012f, 0.25f, 0.75f, 1.0f);
+        spoke(i, 0.09f, 0.92f, 0.007f, 0.22f * dim, 0.38f * dim, 1.05f * dim);
+    spoke(g->player.lane, 0.09f, 0.92f, 0.013f, 0.45f, 1.35f, 1.7f);
 
     for (int i = 0; i < g->shield_max && i < STARPOST_LANES; i++) {
         float a = 1.5707963f - ((float)i + 0.5f) * (6.2831853f / (float)STARPOST_LANES);
@@ -392,9 +771,9 @@ void render_draw(const GameState *g, int width, int height)
         float y1 = sinf(a) * 0.155f;
         int on = i < g->shield;
         if (on)
-            stroke(x0, y0, x1, y1, 0.010f, 0.55f, 1.0f, 1.0f);
+            stroke(x0, y0, x1, y1, 0.011f, 0.55f, 1.35f, 1.55f);
         else
-            stroke(x0, y0, x1, y1, 0.006f, 0.18f, 0.05f, 0.08f);
+            stroke(x0, y0, x1, y1, 0.007f, 0.28f, 0.08f, 0.12f);
     }
 
     draw_beam(g);
@@ -402,30 +781,25 @@ void render_draw(const GameState *g, int width, int height)
         if (g->enemies[i].alive)
             draw_walker(&g->enemies[i]);
     }
+    draw_shards();
     draw_tracer(g->player.lane);
 
     batch = &hud_batch;
     draw_hud(g);
+}
 
-    glViewport(0, 0, width, height);
-    glDisable(GL_DEPTH_TEST);
-    glEnable(GL_BLEND);
-    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    glClear(GL_COLOR_BUFFER_BIT);
-    glUseProgram(program);
-    glBindVertexArray(vao);
-    glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glUniform2f(scale_loc, sx, sy);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(play_batch.count * (int)sizeof(Vert)),
-                 play_verts, GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, play_batch.count);
-    if (hud_batch.count > 0) {
-        glUniform2f(scale_loc, 1.0f, 1.0f);
-        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(hud_batch.count * (int)sizeof(Vert)),
-                     hud_verts, GL_DYNAMIC_DRAW);
-        glDrawArrays(GL_TRIANGLES, 0, hud_batch.count);
-    }
+void render_redraw(const GameState *g, int width, int height)
+{
+    float sx, sy;
+    view_scale(width, height, &sx, &sy);
+    build_scene(g);
+    present(width, height, sx, sy);
+}
+
+void render_draw(const GameState *g, int width, int height, float dt)
+{
+    observe(g, dt);
+    render_redraw(g, width, height);
 }
 
 static uint32_t crc_table[256];
