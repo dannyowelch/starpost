@@ -83,8 +83,8 @@ Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_D
 1. Poll SDL events -> `InputFrame`.
 2. Fixed timestep 120 Hz: `game_update(GameState*, const InputFrame*, float dt)` (pure, no SDL/GL).
 3. Render the state; vsync when a display is present.
-- Walkers spawn at lane ends from `wave_config` and move inward. The wave ends when every walker in its quota is dead or has arrived.
-- Reaching the base drains `STARPOST_SHIELD_DRAIN` and removes the walker. Shield at 0 => game over.
+- Walkers spawn at lane ends from `wave_config` and move inward. Flyers are scheduled with them from wave 2. The wave ends when every enemy in the quota is dead or has arrived.
+- A walker at the base drains 1 shield. A flyer drains 3. Shield at 0 => game over.
 - Fire: if cooldown is clear, an instant beam runs down the current lane and destroys the **nearest** enemy in the tracer's window (smallest `dist`). Walkers count only in their own lane. A flyer counts only while its angle is inside the hit window. The pulse is visual (`beam_timer`). A hit adds that enemy's score.
 - Left/right steps one lane and wraps (7 → 0, 0 → 7). Holding the key repeats after a short delay.
 - The flyer spawns on the rim and spirals in: `dist` falls at `enemy_speed * STARPOST_FLYER_SPEED_SCALE` (0.72) and `angle` advances at `STARPOST_FLYER_ANG_SPEED` (1.8 rad/s). Its lane is the nearest sector, `round((π/2 - angle) / (2π/8))` mod 8, the same angles the web is drawn with. Lane 0 is straight up; increasing lane is clockwise. The hit window is `STARPOST_HIT_WINDOW` (0.55) of one sector, centered on the tracer, so the gaps between lane centers are misses. Reaching the base drains 3 shield. It is drawn as a flickering yellow chevron.
@@ -113,7 +113,7 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - Bloom, in order: bright-pass, 5-tap separable Gaussian at quarter resolution, additive composite, then `color / (1 + color)`. F2 turns the bloom add off so the same frame can be compared. Quarter-res is the whole cost control.
 - A walker that vanishes out in a lane spawns eight line fragments. A shield drop shakes the playfield for `FX_SHAKE_TIME` (0.16 s). Both live in `src/fx` and are driven by a frame diff in the renderer, so `game.c` has no effect fields. The HUD does not shake. Restart does not spawn leftover bursts.
 - Palette: near-black blue background; lanes blue; base, tracer, and shield pips cyan pushed a little past 1 so they bloom; walkers magenta; the flyer a flickering yellow chevron; beam white-hot with an early flash; superzap a cyan full-screen add. Game over turns the base red. The clear screen dims the web and draws WAVE / CLEAR plus the score.
-- HUD: wave, score, and a shield bar, stroked with the in-code vector font. No font files. The in-world shield pips around the base stay.
+- HUD: wave, score, superzap charges, and a shield bar, stroked with the in-code vector font. No font files. The in-world shield pips around the base stay.
 - Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes. Scanlines and vignette are not in this pass.
 
 ## Audio
