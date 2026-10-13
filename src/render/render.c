@@ -324,16 +324,21 @@ static void ring(float radius, float half, float r, float g, float b)
     }
 }
 
-static void draw_tracer(int lane)
+static void draw_tracer(const GameState *g)
 {
-    float a = 1.5707963f - (float)lane * (6.2831853f / (float)STARPOST_LANES);
+    float a = 1.5707963f - (float)g->player.lane * (6.2831853f / (float)STARPOST_LANES);
     float c = cosf(a);
     float s = sinf(a);
     float x = c * 1.0f;
     float y = s * 1.0f;
     float reach = 0.055f;
-    stroke(x + s * reach, y - c * reach, x - s * reach, y + c * reach, 0.018f,
-           0.55f, 1.45f, 1.7f);
+    int dry = !starpost_normal_shot_allowed(energy_tune(), g->energy);
+    if (dry)
+        stroke(x + s * reach, y - c * reach, x - s * reach, y + c * reach, 0.022f, 1.7f, 0.16f,
+               0.22f);
+    else
+        stroke(x + s * reach, y - c * reach, x - s * reach, y + c * reach, 0.018f, 0.55f, 1.45f,
+               1.7f);
 }
 
 static void draw_lane_beam(int lane, float age, float half_scale, float r, float gcol, float b)
@@ -1059,7 +1064,7 @@ static void build_scene(const GameState *g)
             draw_walker(&g->enemies[i]);
     }
     draw_shards();
-    draw_tracer(g->player.lane);
+    draw_tracer(g);
 
     batch = &hud_batch;
     draw_hud(g);

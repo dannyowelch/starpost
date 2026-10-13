@@ -73,9 +73,13 @@ WaveConfig wave_config(int wave)
 const EnergyTune *energy_tune(void)
 {
     static const EnergyTune tune = {
-        0,    /* start */
+        20,   /* start */
         100,  /* cap */
-        20,   /* wave_grant */
+        10,   /* wave_grant */
+        1,    /* shot_cost */
+        1,    /* walker_energy */
+        5,    /* flyer_energy */
+        0,    /* free_shot_at_zero */
         20,   /* zap_cost */
         2,    /* spread_cost */
         5,    /* energize_cost */
@@ -87,6 +91,15 @@ const EnergyTune *energy_tune(void)
         0.22f  /* spread_time */
     };
     return &tune;
+}
+
+int starpost_normal_shot_allowed(const EnergyTune *tune, int energy)
+{
+    if (!tune)
+        return 0;
+    if (energy >= tune->shot_cost)
+        return 1;
+    return tune->free_shot_at_zero && energy == 0;
 }
 
 const DiffTune *diff_tune(Difficulty diff)
@@ -303,17 +316,30 @@ static void turn_axis(GameState *g, bool held, bool *prev, int dir, float dt)
     *prev = true;
 }
 
+static void grant_energy(GameState *g, int amount)
+{
+    if (amount <= 0)
+        return;
+    g->energy += amount;
+    if (g->energy > energy_tune()->cap)
+        g->energy = energy_tune()->cap;
+}
+
 static void kill_enemy(GameState *g, Enemy *e)
 {
+    const EnergyTune *tune;
     if (!e->alive)
         return;
     e->alive = false;
     g->killed += 1;
+    tune = energy_tune();
     if (e->kind == ENEMY_FLYER) {
         g->score += (uint32_t)STARPOST_SCORE_FLYER;
+        grant_energy(g, tune->flyer_energy);
         emit(g, GAME_SND_FLYER_KILL);
     } else {
         g->score += (uint32_t)STARPOST_SCORE_KILL;
+        grant_energy(g, tune->walker_energy);
         emit(g, GAME_SND_WALKER_KILL);
     }
 }
@@ -546,9 +572,7 @@ static void enter_clear(GameState *g)
     if (g->shield > g->shield_max)
         g->shield = g->shield_max;
     g->score += (uint32_t)STARPOST_SCORE_WAVE;
-    g->energy += energy_tune()->wave_grant;
-    if (g->energy > energy_tune()->cap)
-        g->energy = energy_tune()->cap;
+    grant_energy(g, energy_tune()->wave_grant);
     g->state = STATE_WAVE_CLEAR;
     g->clear_timer = STARPOST_WAVE_CLEAR_TIME;
     g->player.beam_timer = 0.0f;
@@ -629,11 +653,20 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         turn_axis(g, false, &g->prev_right, 1, dt);
 
     if (in->fire && g->player.cooldown <= 0.0f) {
-        g->player.beam_timer = STARPOST_BEAM_TIME;
-        g->player.beam_lane = g->player.lane;
-        g->player.cooldown = STARPOST_FIRE_COOLDOWN;
-        emit(g, GAME_SND_FIRE);
-        kill_nearest(g);
+        const EnergyTune *tune = energy_tune();
+        if (!starpost_normal_shot_allowed(tune, g->energy)) {
+            g->deny_flash = tune->deny_time;
+            g->player.cooldown = STARPOST_FIRE_COOLDOWN;
+            emit(g, GAME_SND_DENY);
+        } else {
+            if (!(tune->free_shot_at_zero && g->energy == 0))
+                g->energy -= tune->shot_cost;
+            g->player.beam_timer = STARPOST_BEAM_TIME;
+            g->player.beam_lane = g->player.lane;
+            g->player.cooldown = STARPOST_FIRE_COOLDOWN;
+            emit(g, GAME_SND_FIRE);
+            kill_nearest(g);
+        }
     }
     if (in->spread && !g->prev_spread)
         spread_shot(g);

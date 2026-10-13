@@ -29,12 +29,16 @@
 #define STARPOST_MAX_FRAME_SEC 0.25
 #define STARPOST_MAX_SIM_STEPS 8
 
-/* One table for the energy prototype. Danny: start 0, cap 100,
-   spread costs 2. Slow's factor applies to walkers only. */
+/* One table for the energy prototype. Slow's factor applies to walkers only.
+   free_shot_at_zero: 0 denies a normal shot at 0 energy; 1 fires it free. */
 typedef struct {
     int start;
     int cap;
     int wave_grant;
+    int shot_cost;
+    int walker_energy;
+    int flyer_energy;
+    int free_shot_at_zero;
     int zap_cost;
     int spread_cost;
     int energize_cost;
@@ -164,6 +168,8 @@ typedef struct {
 } GameState;
 
 const EnergyTune *energy_tune(void);
+/* 1 when a normal shot may fire. At 0 energy this is free_shot_at_zero. */
+int starpost_normal_shot_allowed(const EnergyTune *tune, int energy);
 WaveConfig wave_config(int wave);
 const DiffTune *diff_tune(Difficulty diff);
 const char *diff_name(Difficulty diff);

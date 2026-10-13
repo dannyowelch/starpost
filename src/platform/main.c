@@ -17,7 +17,7 @@ static void usage(void)
             "                 [--nobloom-screenshot PATH] [--burst-screenshot PATH]\n"
             "                 [--flyer-screenshot PATH] [--zap-screenshot PATH]\n"
             "  Left/Right or A/D  rotate one lane\n"
-            "  Space or J         fire\n"
+            "  Space or J         fire (1 energy)\n"
             "  Z or Shift         superzap (20 energy)\n"
             "  X                  spread shot (2 energy)\n"
             "  Q                  energize the aimed lane (5 energy)\n"
