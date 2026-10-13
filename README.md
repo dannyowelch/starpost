@@ -46,11 +46,12 @@ SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 600
 | Left / A | Rotate one lane counter-clockwise |
 | Right / D | Rotate one lane clockwise |
 | Space / J | Fire the pulse beam down the tracer's lane |
+| Z or Shift | Superzap, if a charge is stored |
 | F2 | Toggle bloom |
 | Enter, R, or any other key except Esc | Restart after game over |
 | Esc | Quit |
 
-Hold left or right to keep rotating. The beam destroys the nearest walker in that lane and scores 100. A walker that reaches the base drains the shield and does not score. Clearing the wave's quota shows WAVE CLEAR for a moment, adds 500, and restores 2 shield points up to the cap of 8. At zero shield the base turns red and the run stops until you restart. The HUD shows the wave, the score, and a shield bar.
+Hold left or right to keep rotating. The beam destroys the nearest walker in that lane (100 points) or a flyer while it is inside the tracer's lane window (300 points). A walker at the base drains 1 shield; a flyer drains 3. From wave 2 a yellow flyer spirals across the lanes. Each wave grants one superzap charge, kept up to 4, shown as `ZAP` in the HUD. Superzap clears everything on screen. Clearing a wave shows WAVE CLEAR, adds 500, and restores 2 shield up to 8. At zero shield the base turns red until you restart.
 
 ## Layout
 

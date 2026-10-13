@@ -55,9 +55,12 @@ static uint32_t snap_score;
 static GamePlayState snap_state;
 static struct {
     int alive;
+    EnemyKind kind;
     uint8_t lane;
     float dist;
+    float angle;
 } snap[STARPOST_MAX_ENEMIES];
+static float flicker_time;
 static Vert play_verts[8192];
 static Vert hud_verts[8192];
 static Batch play_batch;
@@ -378,6 +381,8 @@ static const uint8_t FONT[][FONT_STROKES * 4] = {
     /* R */ {0, 0, 0, 6, 0, 6, 4, 6, 4, 6, 4, 3, 4, 3, 0, 3, 2, 3, 4, 0, 0, 0, 0, 0},
     /* S */ {4, 6, 0, 6, 0, 6, 0, 3, 0, 3, 4, 3, 4, 3, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0},
     /* O */ {0, 0, 4, 0, 4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* Z */ {0, 6, 4, 6, 4, 6, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* P */ {0, 0, 0, 6, 0, 6, 4, 6, 4, 6, 4, 3, 4, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0},
 };
 
 static int font_index(char c)
@@ -403,6 +408,10 @@ static int font_index(char c)
         return 17;
     case 'O':
         return 18;
+    case 'Z':
+        return 19;
+    case 'P':
+        return 20;
     default:
         return -1;
     }
@@ -466,6 +475,12 @@ static void draw_shield_bar(const GameState *g)
     }
 }
 
+static void fill_rect(float x0, float y0, float x1, float y1, float r, float g, float b)
+{
+    tri(x0, y0, x1, y0, x1, y1, r, g, b);
+    tri(x0, y0, x1, y1, x0, y1, r, g, b);
+}
+
 static void draw_hud(const GameState *g)
 {
     char buf[32];
@@ -473,12 +488,19 @@ static void draw_hud(const GameState *g)
     float y = 0.875f;
     float width;
 
+    if (g->zap_flash > 0.0f) {
+        float k = g->zap_flash / STARPOST_ZAP_FLASH;
+        fill_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.45f * k, 0.95f * k, 1.25f * k);
+    }
+
     snprintf(buf, sizeof buf, "WAVE %d", g->cfg.wave);
     draw_text(-0.97f, y, h, buf, 0.55f, 0.95f, 1.0f);
 
     snprintf(buf, sizeof buf, "SCORE %u", g->score);
     width = (float)strlen(buf) * text_advance(h);
     draw_text(0.97f - width, y, h, buf, 0.95f, 0.95f, 1.0f);
+    snprintf(buf, sizeof buf, "ZAP %u", (unsigned)g->player.zaps);
+    draw_text(-0.97f, 0.79f, 0.042f, buf, 1.45f, 1.15f, 0.30f);
     draw_shield_bar(g);
 
     if (g->state != STATE_WAVE_CLEAR)
@@ -492,6 +514,26 @@ static void draw_hud(const GameState *g)
     snprintf(buf, sizeof buf, "%u", g->score);
     width = (float)strlen(buf) * text_advance(h);
     draw_text(-width * 0.5f, -0.26f, h, buf, 0.95f, 0.95f, 1.0f);
+}
+
+static void draw_flyer(const Enemy *e)
+{
+    float rad = 0.09f + e->dist * 0.83f;
+    float c = cosf(e->angle);
+    float s = sinf(e->angle);
+    float x = c * rad;
+    float y = s * rad;
+    float flick = sinf(flicker_time * 34.0f + e->angle * 3.0f) > 0.0f ? 1.0f : 0.28f;
+    float inward_x = -c;
+    float inward_y = -s;
+    float side = 0.042f;
+    float tip = 0.055f;
+    stroke(x + (-s) * side, y + c * side, x + inward_x * tip, y + inward_y * tip, 0.008f,
+           1.7f * flick, 1.25f * flick, 0.22f * flick);
+    stroke(x - (-s) * side, y - c * side, x + inward_x * tip, y + inward_y * tip, 0.008f,
+           1.7f * flick, 1.25f * flick, 0.22f * flick);
+    stroke(x + (-s) * side * 0.65f, y + c * side * 0.65f, x - (-s) * side * 0.65f,
+           y - c * side * 0.65f, 0.006f, 1.4f * flick, 1.05f * flick, 0.18f * flick);
 }
 
 static void draw_walker(const Enemy *e)
@@ -529,8 +571,10 @@ static void remember(const GameState *g)
     int i;
     for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         snap[i].alive = g->enemies[i].alive ? 1 : 0;
+        snap[i].kind = g->enemies[i].kind;
         snap[i].lane = g->enemies[i].lane;
         snap[i].dist = g->enemies[i].dist;
+        snap[i].angle = g->enemies[i].angle;
     }
     snap_shield = g->shield;
     snap_score = g->score;
@@ -549,8 +593,15 @@ static void observe(const GameState *g, float dt)
             float x, y;
             if (!snap[i].alive || g->enemies[i].alive || snap[i].dist <= 0.05f)
                 continue;
-            walker_center(snap[i].lane, snap[i].dist, &x, &y);
-            fx_burst(&fx, x, y, 1.55f, 0.2f, 0.95f);
+            if (snap[i].kind == ENEMY_FLYER) {
+                float rad = 0.09f + snap[i].dist * 0.83f;
+                x = cosf(snap[i].angle) * rad;
+                y = sinf(snap[i].angle) * rad;
+                fx_burst(&fx, x, y, 1.6f, 1.2f, 0.25f);
+            } else {
+                walker_center(snap[i].lane, snap[i].dist, &x, &y);
+                fx_burst(&fx, x, y, 1.55f, 0.2f, 0.95f);
+            }
         }
         if (g->shield < snap_shield)
             fx_hit(&fx);
@@ -778,7 +829,11 @@ static void build_scene(const GameState *g)
 
     draw_beam(g);
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
-        if (g->enemies[i].alive)
+        if (!g->enemies[i].alive)
+            continue;
+        if (g->enemies[i].kind == ENEMY_FLYER)
+            draw_flyer(&g->enemies[i]);
+        else
             draw_walker(&g->enemies[i]);
     }
     draw_shards();
@@ -798,6 +853,8 @@ void render_redraw(const GameState *g, int width, int height)
 
 void render_draw(const GameState *g, int width, int height, float dt)
 {
+    if (dt > 0.0f)
+        flicker_time += dt;
     observe(g, dt);
     render_redraw(g, width, height);
 }

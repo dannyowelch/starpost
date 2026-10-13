@@ -14,6 +14,7 @@ add_compile_options(-Wall -Wextra -Werror)
 
 add_library(starpost_game STATIC src/game/game.c)
 target_include_directories(starpost_game PUBLIC src)
+target_link_libraries(starpost_game PUBLIC m)
 
 add_library(starpost_fx STATIC src/fx/fx.c)
 target_include_directories(starpost_fx PUBLIC src)

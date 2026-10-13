@@ -12,15 +12,18 @@ static void usage(void)
     fprintf(stderr,
             "usage: starpost [--frames N] [--screenshot PATH]\n"
             "                 [--nobloom-screenshot PATH] [--burst-screenshot PATH]\n"
+            "                 [--flyer-screenshot PATH] [--zap-screenshot PATH]\n"
             "  Left/Right or A/D  rotate one lane\n"
             "  Space or J         fire\n"
+            "  Z or Shift         superzap\n"
             "  F2                 toggle bloom\n"
             "  Enter, R, or any other key except Esc  restart after game over\n"
             "  Esc                quit\n");
 }
 
 static int parse_args(int argc, char **argv, int *frames, const char **shot,
-                      const char **nobloom, const char **burst)
+                      const char **nobloom, const char **burst, const char **flyer,
+                      const char **zapshot)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -35,6 +38,10 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
             *nobloom = argv[++i];
         } else if (strcmp(argv[i], "--burst-screenshot") == 0 && i + 1 < argc) {
             *burst = argv[++i];
+        } else if (strcmp(argv[i], "--flyer-screenshot") == 0 && i + 1 < argc) {
+            *flyer = argv[++i];
+        } else if (strcmp(argv[i], "--zap-screenshot") == 0 && i + 1 < argc) {
+            *zapshot = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage();
             return 1;
@@ -54,7 +61,7 @@ static int alive_count(const GameState *g)
     return n;
 }
 
-static void script_input(const GameState *g, int tick, InputFrame *in)
+static void script_input(const GameState *g, int tick, InputFrame *in, int spare_flyers)
 {
     int lane = -1;
     float best = 2.0f;
@@ -74,6 +81,8 @@ static void script_input(const GameState *g, int tick, InputFrame *in)
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         const Enemy *e = &g->enemies[i];
         if (!e->alive || e->dist >= best)
+            continue;
+        if (spare_flyers && e->kind == ENEMY_FLYER)
             continue;
         best = e->dist;
         lane = e->lane;
@@ -106,13 +115,19 @@ static int window_pixels(SDL_Window *window, int *w, int *h)
 }
 
 static int run_scripted(SDL_Window *window, int frames, const char *shot,
-                        const char *nobloom, const char *burst)
+                        const char *nobloom, const char *burst, const char *flyer,
+                        const char *zapshot)
 {
     GameState game;
     int saved = 0;
     int burst_saved = 0;
+    int flyer_saved = 0;
+    int zap_saved = 0;
     int beam_frames = 0;
     int kill_tick = -1;
+    int zap_tick = -1;
+    int arm_zap = 0;
+    int zap_sent = 0;
     int ran = 0;
     int w = 0;
     int h = 0;
@@ -126,7 +141,11 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
         SDL_Event ev;
         while (SDL_PollEvent(&ev)) {
         }
-        script_input(&game, tick, &in);
+        script_input(&game, tick, &in, flyer && !flyer_saved);
+        if (arm_zap) {
+            in.zap = true;
+            arm_zap = 0;
+        }
         game_update(&game, &in, STARPOST_DT);
         if (window_pixels(window, &w, &h) != 0)
             return 1;
@@ -166,9 +185,39 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
             fprintf(stderr, "burst screenshot %s tick %d shards %d score %u\n", burst, tick,
                     render_shard_count(), game.score);
         }
+        if (flyer && !flyer_saved && game.state == STATE_PLAYING) {
+            for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+                const Enemy *e = &game.enemies[i];
+                if (!e->alive || e->kind != ENEMY_FLYER)
+                    continue;
+                if (e->dist < 0.62f && e->dist > 0.38f) {
+                    if (render_screenshot(flyer, w, h) != 0)
+                        return 1;
+                    flyer_saved = 1;
+                    fprintf(stderr,
+                            "flyer screenshot %s tick %d wave %d dist %.2f lane %u zaps %u\n",
+                            flyer, tick, game.cfg.wave, e->dist, e->lane, game.player.zaps);
+                    break;
+                }
+            }
+        }
+        if (flyer_saved && zapshot && !zap_sent && game.player.zaps > 0 && alive_count(&game) > 0) {
+            arm_zap = 1;
+            zap_sent = 1;
+        }
+        if (zap_tick < 0 && game.zap_flash > 0.0f)
+            zap_tick = tick;
+        if (zapshot && !zap_saved && zap_tick >= 0 && tick >= zap_tick + 6) {
+            if (render_screenshot(zapshot, w, h) != 0)
+                return 1;
+            zap_saved = 1;
+            fprintf(stderr, "zap screenshot %s tick %d flash %.3f shards %d\n", zapshot, tick,
+                    game.zap_flash, render_shard_count());
+        }
         SDL_GL_SwapWindow(window);
-        if ((shot || nobloom || burst) && ((!shot && !nobloom) || saved) &&
-            (!burst || burst_saved))
+        if ((shot || nobloom || burst || flyer || zapshot) &&
+            ((!shot && !nobloom) || saved) && (!burst || burst_saved) &&
+            (!flyer || flyer_saved) && (!zapshot || zap_saved))
             break;
     }
     {
@@ -183,6 +232,14 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
     }
     if (burst && !burst_saved) {
         fprintf(stderr, "screenshot: explosion burst was not reached\n");
+        return 1;
+    }
+    if (flyer && !flyer_saved) {
+        fprintf(stderr, "screenshot: flyer was not seen mid-spiral\n");
+        return 1;
+    }
+    if (zapshot && !zap_saved) {
+        fprintf(stderr, "screenshot: superzap flash was not reached\n");
         return 1;
     }
     return 0;
@@ -233,6 +290,8 @@ static int run_interactive(SDL_Window *window)
             in.left = keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A];
             in.right = keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D];
             in.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_J];
+            in.zap = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_LSHIFT] ||
+                     keys[SDL_SCANCODE_RSHIFT];
         }
 
         now = SDL_GetPerformanceCounter();
@@ -262,18 +321,21 @@ int main(int argc, char **argv)
     const char *shot = NULL;
     const char *nobloom = NULL;
     const char *burst = NULL;
+    const char *flyer = NULL;
+    const char *zapshot = NULL;
     int parsed;
     int scripted;
     SDL_Window *window;
     SDL_GLContext gl;
     int rc;
 
-    parsed = parse_args(argc, argv, &frames, &shot, &nobloom, &burst);
+    parsed = parse_args(argc, argv, &frames, &shot, &nobloom, &burst, &flyer, &zapshot);
     if (parsed != 0)
         return parsed < 0 ? 1 : 0;
-    scripted = frames > 0 || shot != NULL || nobloom != NULL || burst != NULL;
-    if ((shot || nobloom || burst) && frames <= 0)
-        frames = 2400;
+    scripted = frames > 0 || shot != NULL || nobloom != NULL || burst != NULL || flyer != NULL ||
+               zapshot != NULL;
+    if ((shot || nobloom || burst || flyer || zapshot) && frames <= 0)
+        frames = (flyer || zapshot) ? 3600 : 2400;
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -312,7 +374,8 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = scripted ? run_scripted(window, frames, shot, nobloom, burst) : run_interactive(window);
+    rc = scripted ? run_scripted(window, frames, shot, nobloom, burst, flyer, zapshot)
+                  : run_interactive(window);
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();
