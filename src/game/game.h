@@ -8,7 +8,7 @@
 #define STARPOST_MAX_ENEMIES 64
 #define STARPOST_SHIELD_MAX 8
 #define STARPOST_SHIELD_DRAIN 1
-#define STARPOST_SHIELD_RECHARGE 2
+#define STARPOST_SHIELD_RECHARGE 0
 #define STARPOST_SCORE_KILL 100
 #define STARPOST_SCORE_FLYER 300
 #define STARPOST_SCORE_WAVE 500
@@ -29,17 +29,23 @@
 #define STARPOST_MAX_FRAME_SEC 0.25
 #define STARPOST_MAX_SIM_STEPS 8
 
-/* One table for the energy prototype. Danny: start 0, cap 100,
-   spread costs 2. Slow's factor applies to walkers only. */
+/* One table for the energy prototype. Slow's factor applies to walkers only.
+   free_shot_at_zero: 0 denies a normal shot at 0 energy; 1 fires it free. */
 typedef struct {
     int start;
     int cap;
     int wave_grant;
+    int shot_cost;
+    int walker_energy;
+    int flyer_energy;
+    int free_shot_at_zero;
     int zap_cost;
     int spread_cost;
     int energize_cost;
     float energize_time;
     int slow_cost;
+    int repair_cost;
+    float repair_glow;
     float slow_time;
     float slow_factor;
     float deny_time;
@@ -85,6 +91,7 @@ typedef struct {
     bool spread;
     bool energize;
     bool slow;
+    bool repair;
     bool confirm;
 } InputFrame;
 
@@ -124,7 +131,8 @@ typedef enum {
     GAME_SND_SPREAD,
     GAME_SND_ENERGIZE,
     GAME_SND_SLOW,
-    GAME_SND_DENY
+    GAME_SND_DENY,
+    GAME_SND_REPAIR
 } GameSnd;
 
 #define GAME_SND_MAX 24
@@ -142,6 +150,7 @@ typedef struct {
     float turn_timer;
     float zap_flash;
     float deny_flash;
+    float repair_flash;
     float energize_timer;
     float slow_timer;
     int energy;
@@ -152,6 +161,7 @@ typedef struct {
     bool prev_spread;
     bool prev_energize;
     bool prev_slow;
+    bool prev_repair;
     int shield;
     int shield_max;
     int shield_recharge;
@@ -164,6 +174,8 @@ typedef struct {
 } GameState;
 
 const EnergyTune *energy_tune(void);
+/* 1 when a normal shot may fire. At 0 energy this is free_shot_at_zero. */
+int starpost_normal_shot_allowed(const EnergyTune *tune, int energy);
 WaveConfig wave_config(int wave);
 const DiffTune *diff_tune(Difficulty diff);
 const char *diff_name(Difficulty diff);

@@ -49,6 +49,8 @@ void pad_apply(InputFrame *io, const PadState *pad)
         io->energize = true;
     if (pad->rb)
         io->slow = true;
+    if (pad->lb)
+        io->repair = true;
     if (pad->start)
         io->confirm = true;
 }

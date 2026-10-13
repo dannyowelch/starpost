@@ -269,6 +269,12 @@ static void latch_initials_input(Session *s, const SessionInput *in)
     s->prev_pause = in->pause;
 }
 
+static void enter_play(Session *s)
+{
+    s->screen = SCREEN_PLAY;
+    s->await_fire_release = true;
+}
+
 static void enter_initials(Session *s)
 {
     s->pending_score = s->game.score;
@@ -317,7 +323,7 @@ int session_update(Session *s, const SessionInput *in, float dt)
                 uint32_t next = s->seed * 1664525u + 1013904223u;
                 game_init_difficulty(&s->game, s->seed, s->difficulty);
                 s->seed = next == 0 ? 1 : next;
-                s->screen = SCREEN_PLAY;
+                enter_play(s);
             } else if (s->title_item == TITLE_DIFFICULTY) {
                 s->diff_item = (int)s->difficulty;
                 s->screen = SCREEN_DIFFICULTY;
@@ -355,13 +361,25 @@ int session_update(Session *s, const SessionInput *in, float dt)
             s->screen = SCREEN_PAUSE;
             return 0;
         }
-        game_update(&s->game, &in->play, dt);
+        {
+            InputFrame play = in->play;
+            /* Fire is level-triggered. Space, J, and gamepad A are also
+               menu confirms, so the press that entered play is still down
+               on the next tick (and on later catch-up steps of that frame). */
+            if (s->await_fire_release) {
+                if (play.fire)
+                    play.fire = false;
+                else
+                    s->await_fire_release = false;
+            }
+            game_update(&s->game, &play, dt);
+        }
         if (s->game.state == STATE_GAME_OVER)
             finish_game(s);
         return 1;
     case SCREEN_PAUSE:
         if (pause) {
-            s->screen = SCREEN_PLAY;
+            enter_play(s);
             return 0;
         }
         if (up)
@@ -370,7 +388,7 @@ int session_update(Session *s, const SessionInput *in, float dt)
             s->pause_item = (s->pause_item + 1) % PAUSE_COUNT;
         if (accept) {
             if (s->pause_item == PAUSE_RESUME)
-                s->screen = SCREEN_PLAY;
+                enter_play(s);
             else
                 s->screen = SCREEN_TITLE;
         }

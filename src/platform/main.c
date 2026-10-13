@@ -17,11 +17,12 @@ static void usage(void)
             "                 [--nobloom-screenshot PATH] [--burst-screenshot PATH]\n"
             "                 [--flyer-screenshot PATH] [--zap-screenshot PATH]\n"
             "  Left/Right or A/D  rotate one lane\n"
-            "  Space or J         fire\n"
+            "  Space or J         fire (1 energy)\n"
             "  Z or Shift         superzap (20 energy)\n"
             "  X                  spread shot (2 energy)\n"
             "  Q                  energize the aimed lane (5 energy)\n"
             "  E                  slow walkers (10 energy)\n"
+            "  R                  repair one shield pip (10 energy)\n"
             "  M                  mute\n"
             "  - / =              volume\n"
             "  F2                 toggle bloom\n"
@@ -835,6 +836,7 @@ static int run_interactive(SDL_Window *window, double soak_sec)
         sin.play.spread = keys[SDL_SCANCODE_X];
         sin.play.energize = keys[SDL_SCANCODE_Q];
         sin.play.slow = keys[SDL_SCANCODE_E];
+        sin.play.repair = keys[SDL_SCANCODE_R];
         sin.up = keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W];
         sin.down = keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S];
         sin.accept = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER] ||
@@ -855,6 +857,7 @@ static int run_interactive(SDL_Window *window, double soak_sec)
             axes.b = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST);
             axes.x = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST);
             axes.y = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_NORTH);
+            axes.lb = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
             axes.rb = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
             axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
             axes.rt = axis > 0 ? axis / 32767.0f : 0.0f;

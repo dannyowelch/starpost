@@ -123,6 +123,10 @@ void synth_trigger(Synth *s, int game_snd)
     case GAME_SND_DENY:
         voice_on(s, 1, 140.0f, -40.0f, 0.10f, 0.07f);
         break;
+    case GAME_SND_REPAIR:
+        voice_on(s, 4, 660.0f, 480.0f, 0.12f, 0.12f);
+        voice_on(s, 1, 1320.0f, 200.0f, 0.06f, 0.08f);
+        break;
     default:
         break;
     }
