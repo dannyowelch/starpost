@@ -77,6 +77,9 @@ typedef struct Session {
     bool prev_right;
     bool prev_accept;
     bool prev_pause;
+    /* Set on every entry to play. A held fire (Space, J, or gamepad A,
+       which are also menu confirms) is ignored until it is released. */
+    bool await_fire_release;
 } Session;
 
 void scores_clear(ScoreTable *t);

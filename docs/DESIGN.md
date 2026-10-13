@@ -112,7 +112,7 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 | Shield recharge | 0 | 0 | 0 |
 
 ## Controls
-- Title menu: Start, Difficulty, High Scores, Quit. Up/Down or the left stick / D-pad move. Enter, Space, or South/A accepts. Esc or East/B is not required on the title; Quit is the menu item. Difficulty opens Beginner / Advanced / Hyper. High Scores shows the top 10 for one difficulty; Left/Right switches difficulty.
+- Title menu: Start, Difficulty, High Scores, Quit. Up/Down or the left stick / D-pad move. Enter, Space, or South/A accepts. Esc or East/B is not required on the title; Quit is the menu item. Space, J, and South/A are also fire. Entering play ignores a held fire until it is released, so the confirm that starts or resumes does not spend a shot. Difficulty opens Beginner / Advanced / Hyper. High Scores shows the top 10 for one difficulty; Left/Right switches difficulty.
 - Keyboard in play: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, X spread, Q energize, E slow, R repairs one shield pip (10 energy), Z or Shift superzap, M mute, `-`/`=` volume, F2 toggles bloom. Esc or P pauses. Esc does not quit from play.
 - Pause: the simulation stops. Resume, or Quit to title. Esc, P, or Start toggles pause. Up/Down and Enter/A use the pause menu.
 - Game over: a score that makes the top 10 for the current difficulty opens 3-letter initials plus an END column. Up/Down change the current letter. Left/Right move the column. Confirm on a letter moves to the next column. Confirm on END saves the score. `STARPOST_INITIALS_DELAY` (1 s) ignores input after game over, and a held button must be released before it counts. Otherwise the game returns to the title. Score 0 does not enter the table.

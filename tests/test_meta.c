@@ -443,12 +443,84 @@ static void test_session_flow(void)
     CHECK(s.initials[0] == 'A');
 }
 
+static int count_snd(const GameState *g, GameSnd id)
+{
+    int n = 0;
+    for (int i = 0; i < g->snd_count; i++) {
+        if (g->snd[i] == id)
+            n++;
+    }
+    return n;
+}
+
+static void test_confirm_does_not_fire(void)
+{
+    Session s;
+    SessionInput in;
+    int energy;
+    int i;
+
+    session_init(&s, 1);
+    in = none();
+    in.accept = true;
+    in.play.fire = true;
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.screen == SCREEN_PLAY);
+    CHECK(s.await_fire_release);
+    s.game.spawn_timer = 1000.0f;
+    energy = s.game.energy;
+    CHECK(energy == energy_tune()->start);
+    for (i = 0; i < 8; i++)
+        session_update(&s, &in, STARPOST_DT);
+    CHECK(s.screen == SCREEN_PLAY);
+    CHECK(s.game.energy == energy);
+    CHECK(s.game.player.beam_timer == 0.0f);
+    CHECK(s.game.player.cooldown == 0.0f);
+    CHECK(count_snd(&s.game, GAME_SND_FIRE) == 0);
+
+    in = none();
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(!s.await_fire_release);
+    CHECK(s.game.energy == energy);
+    CHECK(s.game.player.beam_timer == 0.0f);
+
+    in.play.fire = true;
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.game.energy == energy - energy_tune()->shot_cost);
+    CHECK(s.game.player.beam_timer > 0.0f);
+    CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
+
+    energy = s.game.energy;
+    in = none();
+    session_update(&s, &in, STARPOST_FIRE_COOLDOWN);
+    in.pause = true;
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.screen == SCREEN_PAUSE);
+    in = none();
+    session_update(&s, &in, STARPOST_DT);
+    in.accept = true;
+    in.play.fire = true;
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.screen == SCREEN_PLAY);
+    CHECK(s.await_fire_release);
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.game.energy == energy);
+    CHECK(s.game.player.beam_timer == 0.0f);
+    in = none();
+    session_update(&s, &in, STARPOST_DT);
+    in.play.fire = true;
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.game.energy == energy - energy_tune()->shot_cost);
+    CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
+}
+
 int main(void)
 {
     test_difficulty_scaling();
     test_scores_table();
     test_scores_file();
     test_session_flow();
+    test_confirm_does_not_fire();
     if (fails) {
         fprintf(stderr, "%d/%d meta checks failed\n", fails, checks);
         return 1;
