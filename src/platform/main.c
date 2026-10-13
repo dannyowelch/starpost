@@ -699,7 +699,7 @@ static int run_meta_shots(SDL_Window *window, const char *title, const char *pau
         session.initials[0] = 'D';
         session.initials[1] = 'A';
         session.initials[2] = 'N';
-        session.initial_slot = 1;
+        session.initial_slot = SCORE_INITIALS;
         session.pending_score = 2400;
         if (save_view(window, &session, initials) != 0)
             return 1;
@@ -854,7 +854,7 @@ static int run_interactive(SDL_Window *window, double soak_sec)
             axes.a = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH);
             axes.b = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST);
             axes.x = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST);
-            axes.lb = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+            axes.y = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_NORTH);
             axes.rb = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
             axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
             axes.rt = axis > 0 ? axis / 32767.0f : 0.0f;

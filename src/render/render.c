@@ -628,10 +628,13 @@ static void draw_initials(const Session *s)
     float h = 0.16f;
     float adv = text_advance(h);
     float gap = adv * 0.35f;
-    float width = adv * 3.0f + gap * 2.0f;
+    float end_h = 0.07f;
+    float end_w = 3.0f * text_advance(end_h);
+    float width = adv * 3.0f + gap * 2.0f + gap + end_w;
     float x = -width * 0.5f;
     int i;
     char buf[32];
+    int on_end = s->initial_slot >= SCORE_INITIALS;
     reset_batches();
     text_center(0.55f, 0.055f, "ENTER INITIALS", 0.65f, 1.15f, 1.45f);
     snprintf(buf, sizeof buf, "%u", s->pending_score);
@@ -647,6 +650,12 @@ static void draw_initials(const Session *s)
             text_at(x, -0.08f, 0.04f, "-", 1.45f, 1.15f, 0.35f);
         x += adv + gap;
     }
+    if (on_end)
+        text_at(x, 0.08f, end_h, "END", 1.45f, 1.15f, 0.35f);
+    else
+        text_at(x, 0.08f, end_h, "END", 0.35f, 0.55f, 0.70f);
+    if (on_end)
+        text_at(x, -0.04f, 0.04f, "-", 1.45f, 1.15f, 0.35f);
 }
 
 static void draw_pause_menu(const Session *s)

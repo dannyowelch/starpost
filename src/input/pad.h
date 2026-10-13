@@ -19,7 +19,7 @@ typedef struct {
     int a;
     int b;
     int x;
-    int lb;
+    int y;
     int rb;
     float rt;
     float lt;

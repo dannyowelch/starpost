@@ -365,7 +365,18 @@ static void test_session_flow(void)
     CHECK(s.pending_score == 1200);
     CHECK(s.initials[0] == 'A');
     CHECK(s.initial_slot == 0);
+    CHECK(s.initials_wait == STARPOST_INITIALS_DELAY);
+    CHECK(STARPOST_INITIALS_DELAY == 1.0f);
     in = none();
+    in.up = true;
+    session_update(&s, &in, 0.40f);
+    CHECK(s.initials[0] == 'A');
+    CHECK(s.initial_slot == 0);
+    CHECK(s.screen == SCREEN_INITIALS);
+    in = none();
+    session_update(&s, &in, STARPOST_INITIALS_DELAY);
+    CHECK(s.initials_wait == 0.0f);
+    CHECK(s.initial_slot == 0);
     in.up = true;
     tap(&s, in);
     CHECK(s.initials[0] == 'B');
@@ -389,6 +400,23 @@ static void test_session_flow(void)
     in = none();
     in.accept = true;
     tap(&s, in);
+    CHECK(s.screen == SCREEN_INITIALS);
+    CHECK(s.initial_slot == 2);
+    CHECK(s.scores.count[DIFF_ADVANCED] == 0);
+    in = none();
+    in.accept = true;
+    tap(&s, in);
+    CHECK(s.screen == SCREEN_INITIALS);
+    CHECK(s.initial_slot == SCORE_INITIALS);
+    in = none();
+    in.up = true;
+    tap(&s, in);
+    CHECK(s.initials[0] == 'Z');
+    CHECK(s.initials[1] == 'B');
+    CHECK(s.initials[2] == 'A');
+    in = none();
+    in.accept = true;
+    tap(&s, in);
     CHECK(s.screen == SCREEN_TITLE);
     CHECK(s.scores_dirty == 1);
     CHECK(s.scores.count[DIFF_ADVANCED] == 1);
@@ -396,6 +424,23 @@ static void test_session_flow(void)
     CHECK(s.scores.rows[DIFF_ADVANCED][0].initials[0] == 'Z');
     CHECK(s.scores.rows[DIFF_ADVANCED][0].initials[1] == 'B');
     CHECK(s.scores.rows[DIFF_ADVANCED][0].initials[2] == 'A');
+
+    session_init(&s, 11);
+    in = none();
+    in.accept = true;
+    tap(&s, in);
+    s.game.state = STATE_GAME_OVER;
+    s.game.score = 800;
+    in = none();
+    in.accept = true;
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.screen == SCREEN_INITIALS);
+    session_update(&s, &in, STARPOST_INITIALS_DELAY);
+    session_update(&s, &in, STARPOST_DT);
+    CHECK(s.screen == SCREEN_INITIALS);
+    CHECK(s.initial_slot == 0);
+    CHECK(s.scores.count[DIFF_ADVANCED] == 0);
+    CHECK(s.initials[0] == 'A');
 }
 
 int main(void)

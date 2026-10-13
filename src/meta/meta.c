@@ -259,11 +259,22 @@ void session_init(Session *s, uint32_t seed)
     s->initials[0] = s->initials[1] = s->initials[2] = 'A';
 }
 
+static void latch_initials_input(Session *s, const SessionInput *in)
+{
+    s->prev_up = in->up;
+    s->prev_down = in->down;
+    s->prev_left = in->play.left;
+    s->prev_right = in->play.right;
+    s->prev_accept = in->accept;
+    s->prev_pause = in->pause;
+}
+
 static void enter_initials(Session *s)
 {
     s->pending_score = s->game.score;
     s->initials[0] = s->initials[1] = s->initials[2] = 'A';
     s->initial_slot = 0;
+    s->initials_wait = STARPOST_INITIALS_DELAY;
     s->screen = SCREEN_INITIALS;
 }
 
@@ -365,18 +376,31 @@ int session_update(Session *s, const SessionInput *in, float dt)
         }
         return 0;
     case SCREEN_INITIALS:
-        if (up)
-            s->initials[s->initial_slot] = cycle_letter(s->initials[s->initial_slot], 1);
-        if (down)
-            s->initials[s->initial_slot] = cycle_letter(s->initials[s->initial_slot], -1);
+        if (s->initials_wait > 0.0f) {
+            s->initials_wait -= dt;
+            if (s->initials_wait < 0.0f)
+                s->initials_wait = 0.0f;
+            latch_initials_input(s, in);
+            return 0;
+        }
+        if (s->initial_slot < SCORE_INITIALS) {
+            if (up)
+                s->initials[s->initial_slot] = cycle_letter(s->initials[s->initial_slot], 1);
+            if (down)
+                s->initials[s->initial_slot] = cycle_letter(s->initials[s->initial_slot], -1);
+        }
         if (left)
-            s->initial_slot = (s->initial_slot + SCORE_INITIALS - 1) % SCORE_INITIALS;
+            s->initial_slot = (s->initial_slot + INITIALS_COLUMNS - 1) % INITIALS_COLUMNS;
         if (right)
-            s->initial_slot = (s->initial_slot + 1) % SCORE_INITIALS;
+            s->initial_slot = (s->initial_slot + 1) % INITIALS_COLUMNS;
         if (accept || pause) {
-            scores_insert(&s->scores, s->difficulty, s->initials, s->pending_score);
-            s->scores_dirty = 1;
-            s->screen = SCREEN_TITLE;
+            if (s->initial_slot < SCORE_INITIALS) {
+                s->initial_slot++;
+            } else {
+                scores_insert(&s->scores, s->difficulty, s->initials, s->pending_score);
+                s->scores_dirty = 1;
+                s->screen = SCREEN_TITLE;
+            }
         }
         return 0;
     default:
