@@ -10,3 +10,6 @@
 - **2026-10-13** — Movement is one lane at a time (left/right rotation), like the original and Tempest. No direct 8-way lane select.
 - **2026-10-13** — The original 8-hits-per-wave rule is replaced by a persistent shield. A walker that reaches the base drains the shield. Each cleared wave restores a tunable amount of shield (not a full reset). Empty shield is game over.
 - **2026-10-13** — Superzap stays in M4 with the flyer. It is not in the core loop and it is not held for a later power-up phase.
+- **2026-10-13** — M2 wave tuning is one table in `src/game/game.c`: count `5 + 3i` (cap 48), speed `0.15 + 0.025i` (cap 0.70), spawn interval `0.90 - 0.04i` (minimum 0.22), `i = wave - 1`. Later waves are longer, faster, and denser.
+- **2026-10-13** — Score is 100 per kill and 500 on wave clear. Arrivals do not score. Shield recharge is applied on clear and capped at max. Empty shield skips the clear. The clear screen holds for 1.5 s, then the next wave starts.
+- **2026-10-13** — The HUD (wave, score, shield bar) and the clear screen use a small stroke vector font in `src/render/render.c`. No font files.

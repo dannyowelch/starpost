@@ -1,6 +1,6 @@
 # Starpost Returns
 
-Unofficial neon-vector sequel to Commodore's *Star Post* (VIC-20 / C64). A base sits at the centre of eight lanes. Walkers come in from the rim. You rotate a tracer one lane at a time and fire an instant pulse beam. The shield persists until it is empty.
+Unofficial neon-vector sequel to Commodore's *Star Post* (VIC-20 / C64). A base sits at the centre of eight lanes. Walkers come in from the rim in waves that get longer, faster, and denser. You rotate a tracer one lane at a time and fire an instant pulse beam. Kills score. Clearing a wave recharges the shield a little, adds a bonus, and shows a short clear screen. The shield persists until it is empty.
 
 Linux first (Arch / Omarchy, Wayland / Hyprland). C, SDL3, and OpenGL. No engine and no third-party assets.
 
@@ -24,16 +24,18 @@ ctest --test-dir build --output-on-failure
 ./build/starpost
 ```
 
-Headless smoke test (no window manager). This steps a fixed 120 Hz simulation and can write a PNG:
+Headless smoke test (no window manager). This steps a fixed 120 Hz simulation and can write a PNG of mid-wave play and of the wave-clear screen:
 
 ```sh
-SDL_VIDEODRIVER=offscreen ./build/starpost --frames 400 --screenshot shot.png
+SDL_VIDEODRIVER=offscreen ./build/starpost --frames 2400 \
+  --screenshot wave.png --clear-screenshot clear.png
 ```
 
 If the offscreen driver cannot create an OpenGL context, an X dummy server works the same way:
 
 ```sh
-SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 400 --screenshot shot.png
+SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 2400 \
+  --screenshot wave.png --clear-screenshot clear.png
 ```
 
 ## Controls
@@ -46,11 +48,11 @@ SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 400 --screenshot shot.
 | Enter, R, or any other key except Esc | Restart after game over |
 | Esc | Quit |
 
-Hold left or right to keep rotating. The beam destroys the nearest walker in that lane. A walker that reaches the base drains the shield. At zero shield the base turns red and the run stops until you restart.
+Hold left or right to keep rotating. The beam destroys the nearest walker in that lane and scores 100. A walker that reaches the base drains the shield and does not score. Clearing the wave's quota shows WAVE CLEAR for a moment, adds 500, and restores 2 shield points up to the cap of 8. At zero shield the base turns red and the run stops until you restart. The HUD shows the wave, the score, and a shield bar.
 
 ## Layout
 
 - `src/game/` — simulation. No SDL or OpenGL, so the tests run headless.
 - `src/platform/` — window, input, fixed timestep.
 - `src/render/` — OpenGL 3.3 lines.
-- `tests/` — lane wrap, nearest hit, shield, game over, restart.
+- `tests/` — lane wrap, nearest hit, shield, game over, restart, wave scaling, clear, recharge, score.

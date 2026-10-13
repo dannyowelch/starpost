@@ -14,12 +14,21 @@ typedef struct {
     float x, y, r, g, b;
 } Vert;
 
+typedef struct {
+    Vert *verts;
+    int count;
+    int cap;
+} Batch;
+
 static GLuint program;
 static GLuint vao;
 static GLuint vbo;
 static GLint scale_loc;
-static Vert verts[4096];
-static int vert_count;
+static Vert play_verts[4096];
+static Vert hud_verts[2048];
+static Batch play_batch;
+static Batch hud_batch;
+static Batch *batch;
 
 static const char *VS =
     "#version 330 core\n"
@@ -99,9 +108,9 @@ int render_init(void)
 static void vert(float x, float y, float r, float g, float b)
 {
     Vert *v;
-    if (vert_count >= (int)(sizeof verts / sizeof verts[0]))
+    if (batch->count >= batch->cap)
         return;
-    v = &verts[vert_count++];
+    v = &batch->verts[batch->count++];
     v->x = x;
     v->y = y;
     v->r = r;
@@ -112,7 +121,7 @@ static void vert(float x, float y, float r, float g, float b)
 static void tri(float x0, float y0, float x1, float y1, float x2, float y2,
                 float r, float g, float b)
 {
-    if (vert_count + 3 > (int)(sizeof verts / sizeof verts[0]))
+    if (batch->count + 3 > batch->cap)
         return;
     vert(x0, y0, r, g, b);
     vert(x1, y1, r, g, b);
@@ -193,6 +202,143 @@ static void draw_beam(const GameState *g)
     stroke(x0, y0, x1, y1, half, cr, cg, cb);
 }
 
+/* 4x6 grid, up to 6 strokes. A 0,0,0,0 stroke is unused. */
+#define FONT_STROKES 6
+
+static const uint8_t FONT[][FONT_STROKES * 4] = {
+    /* 0 */ {0, 0, 4, 0, 4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* 1 */ {2, 0, 2, 6, 2, 6, 0, 4, 1, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* 2 */ {0, 6, 4, 6, 4, 6, 4, 3, 4, 3, 0, 3, 0, 3, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0},
+    /* 3 */ {0, 6, 4, 6, 4, 6, 4, 0, 4, 0, 0, 0, 0, 3, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* 4 */ {0, 6, 0, 3, 0, 3, 4, 3, 4, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* 5 */ {4, 6, 0, 6, 0, 6, 0, 3, 0, 3, 4, 3, 4, 3, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0},
+    /* 6 */ {4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 4, 0, 4, 0, 4, 3, 4, 3, 0, 3, 0, 0, 0, 0},
+    /* 7 */ {0, 6, 4, 6, 4, 6, 1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* 8 */ {0, 0, 4, 0, 4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 0, 0, 3, 4, 3, 0, 0, 0, 0},
+    /* 9 */ {4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 3, 0, 3, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* W */ {0, 6, 1, 0, 1, 0, 2, 4, 2, 4, 3, 0, 3, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* A */ {0, 0, 2, 6, 2, 6, 4, 0, 1, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* V */ {0, 6, 2, 0, 2, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* E */ {4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 4, 0, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* C */ {4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* L */ {0, 6, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* R */ {0, 0, 0, 6, 0, 6, 4, 6, 4, 6, 4, 3, 4, 3, 0, 3, 2, 3, 4, 0, 0, 0, 0, 0},
+    /* S */ {4, 6, 0, 6, 0, 6, 0, 3, 0, 3, 4, 3, 4, 3, 4, 0, 4, 0, 0, 0, 0, 0, 0, 0},
+    /* O */ {0, 0, 4, 0, 4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+};
+
+static int font_index(char c)
+{
+    if (c >= '0' && c <= '9')
+        return c - '0';
+    switch (c) {
+    case 'W':
+        return 10;
+    case 'A':
+        return 11;
+    case 'V':
+        return 12;
+    case 'E':
+        return 13;
+    case 'C':
+        return 14;
+    case 'L':
+        return 15;
+    case 'R':
+        return 16;
+    case 'S':
+        return 17;
+    case 'O':
+        return 18;
+    default:
+        return -1;
+    }
+}
+
+static void draw_glyph(float x, float y, float h, int index, float r, float g, float b)
+{
+    float u = h / 6.0f;
+    float half = h * 0.09f;
+    const uint8_t *s = FONT[index];
+    for (int i = 0; i < FONT_STROKES; i++) {
+        float x0 = s[0];
+        float y0 = s[1];
+        float x1 = s[2];
+        float y1 = s[3];
+        s += 4;
+        if (x0 == x1 && y0 == y1)
+            continue;
+        stroke(x + x0 * u, y + y0 * u, x + x1 * u, y + y1 * u, half, r, g, b);
+    }
+}
+
+static float text_advance(float h)
+{
+    return h * (5.2f / 6.0f);
+}
+
+static void draw_text(float x, float y, float h, const char *s, float r, float g, float b)
+{
+    float adv = text_advance(h);
+    for (; *s; s++) {
+        int index = font_index(*s);
+        if (index >= 0)
+            draw_glyph(x, y, h, index, r, g, b);
+        x += adv;
+    }
+}
+
+static void draw_shield_bar(const GameState *g)
+{
+    int n = g->shield_max;
+    float seg = 0.045f;
+    float gap = 0.012f;
+    float width;
+    float x;
+    if (n < 1)
+        return;
+    if (n > 16)
+        n = 16;
+    width = (float)n * seg + (float)(n - 1) * gap;
+    x = -width * 0.5f;
+    for (int i = 0; i < n; i++) {
+        float x0 = x + (float)i * (seg + gap);
+        int on = i < g->shield;
+        if (on)
+            stroke(x0, 0.915f, x0 + seg, 0.915f, 0.012f, 0.45f, 1.0f, 1.0f);
+        else
+            stroke(x0, 0.915f, x0 + seg, 0.915f, 0.008f, 0.22f, 0.08f, 0.10f);
+    }
+}
+
+static void draw_hud(const GameState *g)
+{
+    char buf[32];
+    float h = 0.055f;
+    float y = 0.875f;
+    float width;
+
+    snprintf(buf, sizeof buf, "WAVE %d", g->cfg.wave);
+    draw_text(-0.97f, y, h, buf, 0.55f, 0.95f, 1.0f);
+
+    snprintf(buf, sizeof buf, "SCORE %u", g->score);
+    width = (float)strlen(buf) * text_advance(h);
+    draw_text(0.97f - width, y, h, buf, 0.95f, 0.95f, 1.0f);
+    draw_shield_bar(g);
+
+    if (g->state != STATE_WAVE_CLEAR)
+        return;
+    h = 0.11f;
+    snprintf(buf, sizeof buf, "WAVE %d", g->cfg.wave);
+    width = (float)strlen(buf) * text_advance(h);
+    draw_text(-width * 0.5f, 0.28f, h, buf, 0.65f, 1.0f, 1.0f);
+    width = 5.0f * text_advance(h);
+    draw_text(-width * 0.5f, 0.12f, h, "CLEAR", 1.0f, 1.0f, 1.0f);
+    snprintf(buf, sizeof buf, "%u", g->score);
+    width = (float)strlen(buf) * text_advance(h);
+    draw_text(-width * 0.5f, -0.26f, h, buf, 0.95f, 0.95f, 1.0f);
+}
+
 static void draw_walker(const Enemy *e)
 {
     float rad = 0.09f + e->dist * 0.83f;
@@ -209,6 +355,8 @@ void render_draw(const GameState *g, int width, int height)
     float sx = 0.92f;
     float sy = 0.92f;
     int over = g->state == STATE_GAME_OVER;
+    int clearing = g->state == STATE_WAVE_CLEAR;
+    float dim = clearing ? 0.35f : 1.0f;
     float base_r = over ? 1.0f : 0.45f;
     float base_g = over ? 0.12f : 1.0f;
     float base_b = over ? 0.18f : 1.0f;
@@ -222,11 +370,18 @@ void render_draw(const GameState *g, int width, int height)
     else if (height > width)
         sy *= (float)width / (float)height;
 
-    vert_count = 0;
-    ring(0.92f, 0.005f, 0.08f, 0.16f, 0.42f);
+    play_batch.verts = play_verts;
+    play_batch.cap = (int)(sizeof play_verts / sizeof play_verts[0]);
+    play_batch.count = 0;
+    hud_batch.verts = hud_verts;
+    hud_batch.cap = (int)(sizeof hud_verts / sizeof hud_verts[0]);
+    hud_batch.count = 0;
+    batch = &play_batch;
+
+    ring(0.92f, 0.005f, 0.08f * dim, 0.16f * dim, 0.42f * dim);
     ring(0.075f, 0.010f, base_r, base_g, base_b);
     for (int i = 0; i < STARPOST_LANES; i++)
-        spoke(i, 0.09f, 0.92f, 0.006f, 0.10f, 0.22f, 0.55f);
+        spoke(i, 0.09f, 0.92f, 0.006f, 0.10f * dim, 0.22f * dim, 0.55f * dim);
     spoke(g->player.lane, 0.09f, 0.92f, 0.012f, 0.25f, 0.75f, 1.0f);
 
     for (int i = 0; i < g->shield_max && i < STARPOST_LANES; i++) {
@@ -249,6 +404,9 @@ void render_draw(const GameState *g, int width, int height)
     }
     draw_tracer(g->player.lane);
 
+    batch = &hud_batch;
+    draw_hud(g);
+
     glViewport(0, 0, width, height);
     glDisable(GL_DEPTH_TEST);
     glEnable(GL_BLEND);
@@ -256,12 +414,18 @@ void render_draw(const GameState *g, int width, int height)
     glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
     glClear(GL_COLOR_BUFFER_BIT);
     glUseProgram(program);
-    glUniform2f(scale_loc, sx, sy);
     glBindVertexArray(vao);
     glBindBuffer(GL_ARRAY_BUFFER, vbo);
-    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(vert_count * (int)sizeof(Vert)), verts,
-                 GL_DYNAMIC_DRAW);
-    glDrawArrays(GL_TRIANGLES, 0, vert_count);
+    glUniform2f(scale_loc, sx, sy);
+    glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(play_batch.count * (int)sizeof(Vert)),
+                 play_verts, GL_DYNAMIC_DRAW);
+    glDrawArrays(GL_TRIANGLES, 0, play_batch.count);
+    if (hud_batch.count > 0) {
+        glUniform2f(scale_loc, 1.0f, 1.0f);
+        glBufferData(GL_ARRAY_BUFFER, (GLsizeiptr)(hud_batch.count * (int)sizeof(Vert)),
+                     hud_verts, GL_DYNAMIC_DRAW);
+        glDrawArrays(GL_TRIANGLES, 0, hud_batch.count);
+    }
 }
 
 static uint32_t crc_table[256];

@@ -1,4 +1,4 @@
-# Starpost Returns — Design Doc (v0.2, 2026-10-13)
+# Starpost Returns — Design Doc (v0.3, 2026-10-13)
 
 Unofficial sequel to Commodore's *Star Post* (VIC-20 1982 / C64 1983). Neon vector look (Tempest-style).
 Linux first (Omarchy/Arch, Wayland/Hyprland). C + SDL3 + OpenGL, no engine.
@@ -12,10 +12,10 @@ Working title is **Starpost Returns**: the C64 silhouette (a base, eight channel
 - **Superzap**: kills all on-screen enemies; 1 charge granted per wave, unused charges accumulate. Ships in M4 with the flyer.
 - Difficulty levels: Beginner, Advanced, Hyper. Waves get more and faster enemies.
 - Controls: keyboard, joystick, or paddles.
-- Unknown until those milestones: exact scoring values, enemy speeds, wave sizes, superalien timing.
+- Unknown until those milestones: superalien timing. Scoring and wave sizes below are this game's tune, not a claim about the C64 values.
 
 ## Resolved (Danny, 2026-10-13)
-1. **Fire** is an instant beam, not a travelling shot. A tracer shows the current lane. On fire, the beam rapidly widens and brightens like a pulse laser. The exact curve is free to iterate; M1 uses a short additive quad, and bloom stays in M3.
+1. **Fire** is an instant beam, not a travelling shot. A tracer shows the current lane. On fire, the beam rapidly widens and brightens like a pulse laser. The exact curve is free to iterate; M1 draws a short alpha-blended quad, and bloom stays in M3.
 2. **Movement** is one lane at a time, left/right rotation, as in the original and Tempest. Direct 8-way stick select is out.
 3. **Shield** replaces "8 hits per wave, then reset". The shield persists across waves. A walker that reaches the base drains it. Clearing a wave restores `STARPOST_SHIELD_RECHARGE` points, clamped to `STARPOST_SHIELD_MAX` (both tunable; recharge does not refill the shield). Empty shield is game over.
 4. **Superzap** stays in M4 with the flyer.
@@ -75,21 +75,32 @@ typedef struct { uint32_t version; HighScore top[10]; } SaveData; // ~/.local/sh
 typedef struct { SDL_Scancode left, right, fire, zap, pause; } KeyMap;
 ```
 
-M1 implements the walker, the player lane/cooldown/beam, the shield, and `STATE_PLAYING` / `STATE_GAME_OVER`. Flyer fields, zap, waves, score, title, and pause arrive in the milestones below. There is no `lane_direct` input: rotation is the only way to change lanes.
+M1 and M2 implement the walker, the player lane/cooldown/beam, the shield, waves, score, and `STATE_PLAYING` / `STATE_WAVE_CLEAR` / `STATE_GAME_OVER`. Flyer fields, zap, the title screen, and pause arrive in the milestones below. There is no `lane_direct` input: rotation is the only way to change lanes.
 
-Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_DRAIN` 1, `STARPOST_SHIELD_RECHARGE` 2). Recharge is applied on wave clear, so M1 defines it and M2 spends it.
+Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_DRAIN` 1, `STARPOST_SHIELD_RECHARGE` 2). Clearing a wave adds the recharge and clamps at `shield_max`. A kill scores `STARPOST_SCORE_KILL` (100). Clearing a wave also adds `STARPOST_SCORE_WAVE` (500). The clear screen lasts `STARPOST_WAVE_CLEAR_TIME` (1.5 s), then the next wave starts on its own. An empty shield is game over and skips the clear, the recharge, and the bonus. Walkers that reach the base do not score.
 
 ## Core loop
 1. Poll SDL events -> `InputFrame`.
 2. Fixed timestep 120 Hz: `game_update(GameState*, const InputFrame*, float dt)` (pure, no SDL/GL).
 3. Render the state; vsync when a display is present.
-- M1 spawns walkers continuously at lane ends; they move inward. M2 groups that into waves.
+- Walkers spawn at lane ends from `wave_config` and move inward. The wave ends when every walker in its quota is dead or has arrived.
 - Reaching the base drains `STARPOST_SHIELD_DRAIN` and removes the walker. Shield at 0 => game over.
-- Fire: if cooldown is clear, an instant beam runs down the current lane and destroys the **nearest** living walker in that lane (smallest `dist`). The pulse is visual only (`beam_timer`).
+- Fire: if cooldown is clear, an instant beam runs down the current lane and destroys the **nearest** living walker in that lane (smallest `dist`). The pulse is visual only (`beam_timer`). A hit adds the kill score.
 - Left/right steps one lane and wraps (7 → 0, 0 → 7). Holding the key repeats after a short delay.
 - Flyer (M4) spirals inward (angle + dist both change); hittable only when its angle is within a lane window.
-- Wave clears (M2) when every enemy scheduled for the wave is dead or has arrived. Shield gains `STARPOST_SHIELD_RECHARGE`, clamped to `shield_max`. Then the next `wave_config`.
-- Shield exhausted => game over. M6 adds the high-score entry. M1 restarts the run on a key press.
+- Wave clear shows a short screen, recharges the shield (clamped), adds the wave bonus, then loads the next `wave_config`. Lane, score, and shield carry over.
+- Shield exhausted => game over. M6 adds the high-score entry. A key restarts the run.
+
+### Wave table
+All three knobs live in `WAVE_TABLE` in `src/game/game.c`. For wave `n` (1-based), with `i = n - 1`:
+
+| Knob | Formula | Cap |
+| --- | --- | --- |
+| Count | `5 + i * 3` | 48 |
+| Speed | `0.15 + i * 0.025` | 0.70 |
+| Spawn interval | `0.90 - i * 0.04` | minimum 0.22 |
+
+Later waves spawn more walkers over a longer window, move them faster, and spawn them more often. `wave_config` is a pure function.
 
 ## Controls
 - Keyboard: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, Enter/R (or any other key except Esc) restart after game over, Esc quit. Remappable `KeyMap` is later; M1 hardcodes these.
@@ -99,7 +110,8 @@ Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_D
 ## Rendering
 - OpenGL 3.3 core. Geometry is a dynamic buffer of short quads (thickened line segments) with alpha blending, so the M1 frame reads as neon lines on black. Additive bloom is M3.
 - M3 adds the rest: HDR offscreen FBO, separable bloom, particles, screen shake, mild scanline/vignette.
-- Palette: black background; base and shield pips cyan, lanes dim blue, tracer brighter cyan, walkers magenta, beam white-hot. Game over turns the base red.
+- Palette: black background; base and shield pips cyan, lanes dim blue, tracer brighter cyan, walkers magenta, beam white-hot. Game over turns the base red. The wave-clear screen dims the web and draws WAVE / CLEAR plus the score in the same vector font.
+- HUD: wave label, score, and a shield bar (pips), stroked with an in-code vector font (digits and the letters in WAVE, CLEAR, and SCORE). No font files. The in-world shield pips around the base stay.
 - The pulse starts narrow, widens and brightens over a fraction of `beam_timer`, then fades. That curve is allowed to change.
 - Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes.
 
@@ -115,12 +127,12 @@ Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_D
 
 ## Testing
 - `src/game/` has zero SDL/GL includes, so unit tests run headless (tiny assert harness, `ctest`).
-- Deterministic: fixed dt + seeded RNG. Tests script `InputFrame` sequences and assert state: lane step and wrap, hold-repeat not a double step, fire kills the nearest walker in that lane only, shield drain, empty shield => game over and the sim freezes, confirm restarts, recharge is a partial refill rather than a full reset.
+- Deterministic: fixed dt + seeded RNG. Tests script `InputFrame` sequences and assert state: lane step and wrap, hold-repeat not a double step, fire kills the nearest walker in that lane only, shield drain, empty shield => game over and the sim freezes, confirm restarts, wave scaling (longer, faster, denser, then the caps), wave clear and the transition into the next wave, recharge added and clamped, kill score plus the wave bonus, arrivals clear a wave without kill points, and a killing blow that empties the shield skips the clear.
 - Smoke: `SDL_VIDEODRIVER=offscreen ./build/starpost --frames N --screenshot shot.png` steps the fixed timestep without a display and can write a PNG.
 
 ## Milestones (each a playable slice)
-- **M1 Core loop**: window + GL lines, base, 8 lanes, tracer steps one lane at a time, fire kills the nearest walker with a visible instant pulse, walkers spawn at lane ends and move inward, a walker at the base drains the persistent shield, empty shield is game over, a key restarts. Unit tests for the logic. Continuous spawn; wave structure is M2, which is also when shield recharge is applied.
-- **M2 Waves & score**: `wave_config` scaling (count, speed, spawn rate), wave-clear screen, partial shield recharge, score, HUD with a vector font.
+- **M1 Core loop**: window + GL lines, base, 8 lanes, tracer steps one lane at a time, fire kills the nearest walker with a visible instant pulse, walkers spawn at lane ends and move inward, a walker at the base drains the persistent shield, empty shield is game over, a key restarts. Unit tests for the logic.
+- **M2 Waves & score**: `wave_config` scaling (count, speed, spawn rate) from one table, wave-clear screen, partial shield recharge, kill score and a wave bonus, HUD in a stroke vector font.
 - **M3 Neon pass**: bloom pipeline, thicker lines, particles/explosion line bursts, screen shake.
 - **M4 Flyer + superzap**: spiralling flyer, lane-window hit rule, superzap charges (1 per wave, accumulating).
 - **M5 Audio + gamepad**: procedural SFX, SDL3 gamepad. Shoulders and d-pad step one lane; no direct lane pick.
