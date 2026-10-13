@@ -29,8 +29,8 @@
 #define STARPOST_MAX_FRAME_SEC 0.25
 #define STARPOST_MAX_SIM_STEPS 8
 
-/* One table for the energy prototype. Danny: start 20, cap 100.
-   Slow's factor applies to walkers only. */
+/* One table for the energy prototype. Danny: start 0, cap 100,
+   spread costs 2. Slow's factor applies to walkers only. */
 typedef struct {
     int start;
     int cap;

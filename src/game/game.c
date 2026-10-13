@@ -73,11 +73,11 @@ WaveConfig wave_config(int wave)
 const EnergyTune *energy_tune(void)
 {
     static const EnergyTune tune = {
-        20,   /* start */
+        0,    /* start */
         100,  /* cap */
         20,   /* wave_grant */
         20,   /* zap_cost */
-        1,    /* spread_cost */
+        2,    /* spread_cost */
         5,    /* energize_cost */
         3.0f, /* energize_time */
         10,   /* slow_cost */

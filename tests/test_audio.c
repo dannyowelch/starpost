@@ -265,7 +265,7 @@ static void test_events(void)
 
     game_init(&g, 4);
     g.spawn_timer = 1000.0f;
-    CHECK(g.energy >= energy_tune()->zap_cost);
+    g.energy = energy_tune()->zap_cost;
     g.enemies[0].alive = true;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].dist = 0.4f;

@@ -19,7 +19,7 @@ static void usage(void)
             "  Left/Right or A/D  rotate one lane\n"
             "  Space or J         fire\n"
             "  Z or Shift         superzap (20 energy)\n"
-            "  X                  spread shot (1 energy)\n"
+            "  X                  spread shot (2 energy)\n"
             "  Q                  energize the aimed lane (5 energy)\n"
             "  E                  slow walkers (10 energy)\n"
             "  M                  mute\n"
@@ -755,6 +755,7 @@ static int run_ability_shots(SDL_Window *window, const char *spread, const char 
         place_walker(&game, 1, 0, 0.48f);
         place_walker(&game, 2, 1, 0.62f);
         place_walker(&game, 3, 3, 0.40f);
+        game.energy = energy_tune()->wave_grant;
         memset(&in, 0, sizeof in);
         in.spread = true;
         game_update(&game, &in, STARPOST_DT);
@@ -767,6 +768,7 @@ static int run_ability_shots(SDL_Window *window, const char *spread, const char 
         game.player.lane = 2;
         place_walker(&game, 0, 2, 0.50f);
         place_walker(&game, 1, 5, 0.45f);
+        game.energy = energy_tune()->wave_grant;
         memset(&in, 0, sizeof in);
         in.energize = true;
         game_update(&game, &in, STARPOST_DT);
@@ -780,7 +782,7 @@ static int run_ability_shots(SDL_Window *window, const char *spread, const char 
         place_walker(&game, 1, 4, 0.42f);
         place_walker(&game, 2, 6, 0.58f);
         game.slow_timer = energy_tune()->slow_time;
-        game.energy = energy_tune()->start - energy_tune()->slow_cost;
+        game.energy = energy_tune()->wave_grant - energy_tune()->slow_cost;
         if (save_game_view(window, &game, slow) != 0)
             return 1;
     }
