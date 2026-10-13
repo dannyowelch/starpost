@@ -10,14 +10,15 @@
 static void usage(void)
 {
     fprintf(stderr,
-            "usage: starpost [--frames N] [--screenshot PATH]\n"
+            "usage: starpost [--frames N] [--screenshot PATH] [--clear-screenshot PATH]\n"
             "  Left/Right or A/D  rotate one lane\n"
             "  Space or J         fire\n"
             "  Enter, R, or any other key except Esc  restart after game over\n"
             "  Esc                quit\n");
 }
 
-static int parse_args(int argc, char **argv, int *frames, const char **shot)
+static int parse_args(int argc, char **argv, int *frames, const char **shot,
+                      const char **clear_shot)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -28,6 +29,8 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot)
             }
         } else if (strcmp(argv[i], "--screenshot") == 0 && i + 1 < argc) {
             *shot = argv[++i];
+        } else if (strcmp(argv[i], "--clear-screenshot") == 0 && i + 1 < argc) {
+            *clear_shot = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage();
             return 1;
@@ -52,12 +55,18 @@ static void script_input(const GameState *g, int tick, InputFrame *in)
     int lane = -1;
     float best = 2.0f;
     int cur, cw, ccw;
+    static int hunting;
 
     memset(in, 0, sizeof *in);
+    if (tick == 0)
+        hunting = 0;
     if (g->state != STATE_PLAYING || g->player.beam_timer > 0.0f)
         return;
-    if (alive_count(g) < 5)
-        return;
+    if (!hunting) {
+        if (alive_count(g) < 4)
+            return;
+        hunting = 1;
+    }
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         const Enemy *e = &g->enemies[i];
         if (!e->alive || e->dist >= best)
@@ -65,7 +74,7 @@ static void script_input(const GameState *g, int tick, InputFrame *in)
         best = e->dist;
         lane = e->lane;
     }
-    if (lane < 0 || best > 0.80f)
+    if (lane < 0)
         return;
     cur = g->player.lane;
     if (cur == lane) {
@@ -92,11 +101,14 @@ static int window_pixels(SDL_Window *window, int *w, int *h)
     return 0;
 }
 
-static int run_scripted(SDL_Window *window, int frames, const char *shot)
+static int run_scripted(SDL_Window *window, int frames, const char *shot,
+                        const char *clear_shot)
 {
     GameState game;
     int saved = 0;
+    int clear_saved = 0;
     int beam_frames = 0;
+    int clear_frames = 0;
     int w = 0;
     int h = 0;
 
@@ -111,7 +123,7 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot)
         if (window_pixels(window, &w, &h) != 0)
             return 1;
         render_draw(&game, w, h);
-        if (game.player.beam_timer > 0.0f)
+        if (game.state == STATE_PLAYING && game.player.beam_timer > 0.0f)
             beam_frames++;
         else
             beam_frames = 0;
@@ -119,13 +131,32 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot)
             if (render_screenshot(shot, w, h) != 0)
                 return 1;
             saved = 1;
-            fprintf(stderr, "screenshot %s (%dx%d) tick %d shield %d walkers %d lane %u\n",
-                    shot, w, h, tick, game.shield, alive_count(&game), game.player.lane);
+            fprintf(stderr,
+                    "screenshot %s (%dx%d) tick %d wave %d score %u shield %d walkers %d\n",
+                    shot, w, h, tick, game.cfg.wave, game.score, game.shield,
+                    alive_count(&game));
+        }
+        if (game.state == STATE_WAVE_CLEAR)
+            clear_frames++;
+        else
+            clear_frames = 0;
+        if (clear_shot && !clear_saved && clear_frames == 8) {
+            if (render_screenshot(clear_shot, w, h) != 0)
+                return 1;
+            clear_saved = 1;
+            fprintf(stderr, "clear screenshot %s (%dx%d) tick %d wave %d score %u shield %d\n",
+                    clear_shot, w, h, tick, game.cfg.wave, game.score, game.shield);
         }
         SDL_GL_SwapWindow(window);
+        if ((!shot || saved) && (!clear_shot || clear_saved))
+            break;
     }
     if (shot && !saved) {
         fprintf(stderr, "screenshot: pulse beam was not drawn\n");
+        return 1;
+    }
+    if (clear_shot && !clear_saved) {
+        fprintf(stderr, "screenshot: wave clear was not reached\n");
         return 1;
     }
     return 0;
@@ -200,18 +231,19 @@ int main(int argc, char **argv)
 {
     int frames = 0;
     const char *shot = NULL;
+    const char *clear_shot = NULL;
     int parsed;
     int scripted;
     SDL_Window *window;
     SDL_GLContext gl;
     int rc;
 
-    parsed = parse_args(argc, argv, &frames, &shot);
+    parsed = parse_args(argc, argv, &frames, &shot, &clear_shot);
     if (parsed != 0)
         return parsed < 0 ? 1 : 0;
-    scripted = frames > 0 || shot != NULL;
-    if (shot && frames <= 0)
-        frames = 720;
+    scripted = frames > 0 || shot != NULL || clear_shot != NULL;
+    if ((shot || clear_shot) && frames <= 0)
+        frames = clear_shot ? 2400 : 720;
 
     if (!SDL_Init(SDL_INIT_VIDEO)) {
         fprintf(stderr, "SDL_Init: %s\n", SDL_GetError());
@@ -250,7 +282,7 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = scripted ? run_scripted(window, frames, shot) : run_interactive(window);
+    rc = scripted ? run_scripted(window, frames, shot, clear_shot) : run_interactive(window);
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();

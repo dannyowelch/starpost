@@ -2,8 +2,23 @@
 
 #include <string.h>
 
-static const float WALKER_SPEED = 0.20f;
-static const float SPAWN_INTERVAL = 0.50f;
+/* One table. Later waves are longer (more walkers, a longer spawn
+   window), faster, and denser (shorter interval) until the caps. */
+static const struct {
+    int count0;
+    int count_step;
+    int count_max;
+    float speed0;
+    float speed_step;
+    float speed_max;
+    float interval0;
+    float interval_step;
+    float interval_min;
+} WAVE_TABLE = {
+    5, 3, 48,
+    0.15f, 0.025f, 0.70f,
+    0.90f, 0.04f, 0.22f,
+};
 
 static uint32_t rng_next(uint32_t *s)
 {
@@ -15,6 +30,41 @@ static uint32_t rng_next(uint32_t *s)
     return x;
 }
 
+WaveConfig wave_config(int wave)
+{
+    WaveConfig c;
+    int i;
+
+    if (wave < 1)
+        wave = 1;
+    i = wave - 1;
+    c.wave = wave;
+    c.enemy_count = WAVE_TABLE.count0 + i * WAVE_TABLE.count_step;
+    if (c.enemy_count > WAVE_TABLE.count_max)
+        c.enemy_count = WAVE_TABLE.count_max;
+    if (c.enemy_count > STARPOST_MAX_ENEMIES)
+        c.enemy_count = STARPOST_MAX_ENEMIES;
+    c.enemy_speed = WAVE_TABLE.speed0 + (float)i * WAVE_TABLE.speed_step;
+    if (c.enemy_speed > WAVE_TABLE.speed_max)
+        c.enemy_speed = WAVE_TABLE.speed_max;
+    c.spawn_interval = WAVE_TABLE.interval0 - (float)i * WAVE_TABLE.interval_step;
+    if (c.spawn_interval < WAVE_TABLE.interval_min)
+        c.spawn_interval = WAVE_TABLE.interval_min;
+    return c;
+}
+
+static void begin_wave(GameState *g, int wave)
+{
+    memset(g->enemies, 0, sizeof g->enemies);
+    g->cfg = wave_config(wave);
+    g->spawned = 0;
+    g->killed = 0;
+    g->spawn_timer = g->cfg.spawn_interval;
+    g->clear_timer = 0.0f;
+    g->player.beam_timer = 0.0f;
+    g->state = STATE_PLAYING;
+}
+
 void game_init(GameState *g, uint32_t seed)
 {
     memset(g, 0, sizeof *g);
@@ -23,8 +73,7 @@ void game_init(GameState *g, uint32_t seed)
     g->rng = seed;
     g->shield = STARPOST_SHIELD_MAX;
     g->shield_max = STARPOST_SHIELD_MAX;
-    g->spawn_timer = SPAWN_INTERVAL;
-    g->state = STATE_PLAYING;
+    begin_wave(g, 1);
 }
 
 static void step_lane(GameState *g, int dir)
@@ -69,11 +118,14 @@ static void kill_nearest(GameState *g)
             best_dist = e->dist;
         }
     }
-    if (best >= 0)
-        g->enemies[best].alive = false;
+    if (best < 0)
+        return;
+    g->enemies[best].alive = false;
+    g->score += (uint32_t)STARPOST_SCORE_KILL;
+    g->killed += 1;
 }
 
-static void spawn_walker(GameState *g)
+static int spawn_walker(GameState *g)
 {
     int slot = -1;
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
@@ -83,13 +135,34 @@ static void spawn_walker(GameState *g)
         }
     }
     if (slot < 0)
-        return;
+        return 0;
     Enemy *e = &g->enemies[slot];
     e->kind = ENEMY_WALKER;
     e->lane = (uint8_t)(rng_next(&g->rng) % STARPOST_LANES);
     e->dist = 1.0f;
-    e->speed = WALKER_SPEED;
+    e->speed = g->cfg.enemy_speed;
     e->alive = true;
+    return 1;
+}
+
+static int any_alive(const GameState *g)
+{
+    for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        if (g->enemies[i].alive)
+            return 1;
+    }
+    return 0;
+}
+
+static void enter_clear(GameState *g)
+{
+    g->shield += STARPOST_SHIELD_RECHARGE;
+    if (g->shield > g->shield_max)
+        g->shield = g->shield_max;
+    g->score += (uint32_t)STARPOST_SCORE_WAVE;
+    g->state = STATE_WAVE_CLEAR;
+    g->clear_timer = STARPOST_WAVE_CLEAR_TIME;
+    g->player.beam_timer = 0.0f;
 }
 
 void game_update(GameState *g, const InputFrame *in, float dt)
@@ -109,6 +182,13 @@ void game_update(GameState *g, const InputFrame *in, float dt)
 
     if (dt < 0.0f)
         dt = 0.0f;
+
+    if (g->state == STATE_WAVE_CLEAR) {
+        g->clear_timer -= dt;
+        if (g->clear_timer <= 0.0f)
+            begin_wave(g, g->cfg.wave + 1);
+        return;
+    }
 
     if (g->player.cooldown > 0.0f) {
         g->player.cooldown -= dt;
@@ -156,8 +236,13 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         return;
 
     g->spawn_timer -= dt;
-    while (g->spawn_timer <= 0.0f) {
-        g->spawn_timer += SPAWN_INTERVAL;
-        spawn_walker(g);
+    while (g->spawn_timer <= 0.0f && g->spawned < g->cfg.enemy_count) {
+        if (!spawn_walker(g))
+            break;
+        g->spawned += 1;
+        g->spawn_timer += g->cfg.spawn_interval;
     }
+
+    if (g->spawned >= g->cfg.enemy_count && !any_alive(g))
+        enter_clear(g);
 }
