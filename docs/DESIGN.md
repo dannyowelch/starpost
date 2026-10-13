@@ -1,4 +1,4 @@
-# Starpost Returns — Design Doc (v0.3, 2026-10-13)
+# Starpost Returns — Design Doc (v0.4, 2026-10-13)
 
 Unofficial sequel to Commodore's *Star Post* (VIC-20 1982 / C64 1983). Neon vector look (Tempest-style).
 Linux first (Omarchy/Arch, Wayland/Hyprland). C + SDL3 + OpenGL, no engine.
@@ -15,7 +15,7 @@ Working title is **Starpost Returns**: the C64 silhouette (a base, eight channel
 - Unknown until those milestones: superalien timing. Scoring and wave sizes below are this game's tune, not a claim about the C64 values.
 
 ## Resolved (Danny, 2026-10-13)
-1. **Fire** is an instant beam, not a travelling shot. A tracer shows the current lane. On fire, the beam rapidly widens and brightens like a pulse laser. The exact curve is free to iterate; M1 draws a short alpha-blended quad, and bloom stays in M3.
+1. **Fire** is an instant beam, not a travelling shot. A tracer shows the current lane. On fire, the beam rapidly widens, brightens, and flashes. The curve can still be iterated; the current one is drawn in the renderer.
 2. **Movement** is one lane at a time, left/right rotation, as in the original and Tempest. Direct 8-way stick select is out.
 3. **Shield** replaces "8 hits per wave, then reset". The shield persists across waves. A walker that reaches the base drains it. Clearing a wave restores `STARPOST_SHIELD_RECHARGE` points, clamped to `STARPOST_SHIELD_MAX` (both tunable; recharge does not refill the shield). Empty shield is game over.
 4. **Superzap** stays in M4 with the flyer.
@@ -108,12 +108,12 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - Superzap (Shift/K, gamepad B/RT) is M4, one charge granted per wave, unused charges accumulate.
 
 ## Rendering
-- OpenGL 3.3 core. Geometry is a dynamic buffer of short quads (thickened line segments) with alpha blending, so the M1 frame reads as neon lines on black. Additive bloom is M3.
-- M3 adds the rest: HDR offscreen FBO, separable bloom, particles, screen shake, mild scanline/vignette.
-- Palette: black background; base and shield pips cyan, lanes dim blue, tracer brighter cyan, walkers magenta, beam white-hot. Game over turns the base red. The wave-clear screen dims the web and draws WAVE / CLEAR plus the score in the same vector font.
-- HUD: wave label, score, and a shield bar (pips), stroked with an in-code vector font (digits and the letters in WAVE, CLEAR, and SCORE). No font files. The in-world shield pips around the base stay.
-- The pulse starts narrow, widens and brightens over a fraction of `beam_timer`, then fades. That curve is allowed to change.
-- Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes.
+- OpenGL 3.3 core. Each line is two quads: a wider dim halo and a bright core, added into an RGBA16F scene target.
+- Bloom, in order: bright-pass, 5-tap separable Gaussian at quarter resolution, additive composite, then `color / (1 + color)`. F2 turns the bloom add off so the same frame can be compared. Quarter-res is the whole cost control.
+- A walker that vanishes out in a lane spawns eight line fragments. A shield drop shakes the playfield for `FX_SHAKE_TIME` (0.16 s). Both live in `src/fx` and are driven by a frame diff in the renderer, so `game.c` has no effect fields. The HUD does not shake. Restart does not spawn leftover bursts.
+- Palette: near-black blue background; lanes blue; base, tracer, and shield pips cyan pushed a little past 1 so they bloom; walkers magenta; beam white-hot with an early flash. Game over turns the base red. The clear screen dims the web and draws WAVE / CLEAR plus the score.
+- HUD: wave, score, and a shield bar, stroked with the in-code vector font. No font files. The in-world shield pips around the base stay.
+- Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes. Scanlines and vignette are not in this pass.
 
 ## Audio
 - M5: procedural synth in an SDL3 audio stream callback (square/saw + noise, simple envelopes) for fire, hit, base hit, wave clear.
@@ -122,18 +122,18 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 ## Build
 - CMake (>=3.20). SDL3 via pkg-config (`pkg_check_modules`). OpenGL via CMake's FindOpenGL and the system `GL/gl.h` + `GL/glext.h` prototypes. No vendored glad and no third-party assets; Linux libGL exports the entry points we call.
 - `cmake -B build && cmake --build build`. Targets: `starpost`, `starpost_tests`.
-- Layout: `src/game/` (pure logic), `src/platform/` (SDL, input), `src/render/` (GL), `tests/`.
+- Layout: `src/game/` (pure logic), `src/fx/` (fragments and shake), `src/platform/` (SDL, input), `src/render/` (GL), `tests/`.
 - Flags: `-std=c11 -Wall -Wextra -Werror`.
 
 ## Testing
-- `src/game/` has zero SDL/GL includes, so unit tests run headless (tiny assert harness, `ctest`).
+- `src/game/` and `src/fx/` have zero SDL/GL includes, so unit tests run headless (tiny assert harness, `ctest`).
 - Deterministic: fixed dt + seeded RNG. Tests script `InputFrame` sequences and assert state: lane step and wrap, hold-repeat not a double step, fire kills the nearest walker in that lane only, shield drain, empty shield => game over and the sim freezes, confirm restarts, wave scaling (longer, faster, denser, then the caps), wave clear and the transition into the next wave, recharge added and clamped, kill score plus the wave bonus, arrivals clear a wave without kill points, and a killing blow that empties the shield skips the clear.
 - Smoke: `SDL_VIDEODRIVER=offscreen ./build/starpost --frames N --screenshot shot.png` steps the fixed timestep without a display and can write a PNG.
 
 ## Milestones (each a playable slice)
 - **M1 Core loop**: window + GL lines, base, 8 lanes, tracer steps one lane at a time, fire kills the nearest walker with a visible instant pulse, walkers spawn at lane ends and move inward, a walker at the base drains the persistent shield, empty shield is game over, a key restarts. Unit tests for the logic.
 - **M2 Waves & score**: `wave_config` scaling (count, speed, spawn rate) from one table, wave-clear screen, partial shield recharge, kill score and a wave bonus, HUD in a stroke vector font.
-- **M3 Neon pass**: bloom pipeline, thicker lines, particles/explosion line bursts, screen shake.
+- **M3 Neon pass**: HDR bloom (bright-pass, separable blur, additive composite, F2 toggle), halo-and-core lines, explosion fragments, short screen shake, a wider flashing beam.
 - **M4 Flyer + superzap**: spiralling flyer, lane-window hit rule, superzap charges (1 per wave, accumulating).
 - **M5 Audio + gamepad**: procedural SFX, SDL3 gamepad. Shoulders and d-pad step one lane; no direct lane pick.
 - **M6 Meta**: title screen, high scores saved to disk, pause, difficulty select (Beginner/Advanced/Hyper).

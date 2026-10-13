@@ -24,18 +24,19 @@ ctest --test-dir build --output-on-failure
 ./build/starpost
 ```
 
-Headless smoke test (no window manager). This steps a fixed 120 Hz simulation and can write a PNG of mid-wave play and of the wave-clear screen:
+Headless smoke test (no window manager). This steps a fixed 120 Hz simulation and can write the same mid-wave frame with bloom on and off, plus an explosion:
 
 ```sh
 SDL_VIDEODRIVER=offscreen ./build/starpost --frames 2400 \
-  --screenshot wave.png --clear-screenshot clear.png
+  --screenshot bloom.png --nobloom-screenshot flat.png --burst-screenshot burst.png
 ```
+
+`--frames 600` with no screenshot prints how many frames per second the machine managed.
 
 If the offscreen driver cannot create an OpenGL context, an X dummy server works the same way:
 
 ```sh
-SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 2400 \
-  --screenshot wave.png --clear-screenshot clear.png
+SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 600
 ```
 
 ## Controls
@@ -45,6 +46,7 @@ SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 2400 \
 | Left / A | Rotate one lane counter-clockwise |
 | Right / D | Rotate one lane clockwise |
 | Space / J | Fire the pulse beam down the tracer's lane |
+| F2 | Toggle bloom |
 | Enter, R, or any other key except Esc | Restart after game over |
 | Esc | Quit |
 
@@ -54,5 +56,6 @@ Hold left or right to keep rotating. The beam destroys the nearest walker in tha
 
 - `src/game/` — simulation. No SDL or OpenGL, so the tests run headless.
 - `src/platform/` — window, input, fixed timestep.
-- `src/render/` — OpenGL 3.3 lines.
-- `tests/` — lane wrap, nearest hit, shield, game over, restart, wave scaling, clear, recharge, score.
+- `src/fx/` — explosion fragments and screen shake. No SDL or OpenGL.
+- `src/render/` — OpenGL 3.3 lines, HDR target, and bloom.
+- `tests/` — game rules, plus fragment motion, the burst cap, and shake decay.

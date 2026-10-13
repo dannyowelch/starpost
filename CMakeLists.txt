@@ -15,13 +15,21 @@ add_compile_options(-Wall -Wextra -Werror)
 add_library(starpost_game STATIC src/game/game.c)
 target_include_directories(starpost_game PUBLIC src)
 
+add_library(starpost_fx STATIC src/fx/fx.c)
+target_include_directories(starpost_fx PUBLIC src)
+target_link_libraries(starpost_fx PUBLIC m)
+
 add_executable(starpost
     src/platform/main.c
     src/render/render.c)
-target_link_libraries(starpost PRIVATE starpost_game PkgConfig::SDL3 OpenGL::GL ZLIB::ZLIB m)
+target_link_libraries(starpost PRIVATE starpost_game starpost_fx PkgConfig::SDL3 OpenGL::GL ZLIB::ZLIB)
 
 add_executable(starpost_tests tests/test_game.c)
 target_link_libraries(starpost_tests PRIVATE starpost_game)
 
+add_executable(starpost_fx_tests tests/test_fx.c)
+target_link_libraries(starpost_fx_tests PRIVATE starpost_fx)
+
 enable_testing()
 add_test(NAME game COMMAND starpost_tests)
+add_test(NAME fx COMMAND starpost_fx_tests)
