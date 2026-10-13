@@ -1,6 +1,7 @@
 #include "audio/synth.h"
 #include "game/game.h"
 #include "input/pad.h"
+#include "meta/meta.h"
 #include "render/render.h"
 
 #include <SDL3/SDL.h>
@@ -21,15 +22,22 @@ static void usage(void)
             "  M                  mute\n"
             "  - / =              volume\n"
             "  F2                 toggle bloom\n"
-            "  Enter, R, or any other key except Esc  restart after game over\n"
-            "  Esc                quit\n"
+            "  Up/Down            move through menus and initials\n"
+            "  Enter or Space     accept a menu item or initials\n"
+            "  Esc or P           pause during play, resume, or leave a menu\n"
             "  --soak-pad SEC     run SEC seconds with a virtual gamepad\n"
+            "  --title-screenshot PATH\n"
+            "  --pause-screenshot PATH\n"
+            "  --initials-screenshot PATH\n"
+            "  --scores-screenshot PATH\n"
             "  STARPOST_LOG_GAMEPAD=1  log pad identity, event counts, slow polls\n");
 }
 
 static int parse_args(int argc, char **argv, int *frames, const char **shot,
                       const char **nobloom, const char **burst, const char **flyer,
-                      const char **zapshot, double *soak)
+                      const char **zapshot, double *soak, const char **title_shot,
+                      const char **pause_shot, const char **initials_shot,
+                      const char **scores_shot)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -54,6 +62,14 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
                 fprintf(stderr, "--soak-pad needs a positive number of seconds\n");
                 return -1;
             }
+        } else if (strcmp(argv[i], "--title-screenshot") == 0 && i + 1 < argc) {
+            *title_shot = argv[++i];
+        } else if (strcmp(argv[i], "--pause-screenshot") == 0 && i + 1 < argc) {
+            *pause_shot = argv[++i];
+        } else if (strcmp(argv[i], "--initials-screenshot") == 0 && i + 1 < argc) {
+            *initials_shot = argv[++i];
+        } else if (strcmp(argv[i], "--scores-screenshot") == 0 && i + 1 < argc) {
+            *scores_shot = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage();
             return 1;
@@ -308,7 +324,7 @@ static void volume_step(float delta);
 
 /* Drain at most one frame of events. Returns 1 if the player quit.
    The first PollEvent is what pumps joysticks; a slow return is logged. */
-static int poll_frame(int interactive, int game_over, int *confirm)
+static int poll_frame(int interactive)
 {
     SDL_Event ev;
     int budget = pad_event_budget(100000);
@@ -335,10 +351,6 @@ static int poll_frame(int interactive, int game_over, int *confirm)
                 volume_step(-0.1f);
             else if (ev.key.scancode == SDL_SCANCODE_EQUALS)
                 volume_step(0.1f);
-            else if (ev.key.scancode == SDL_SCANCODE_ESCAPE)
-                quit = 1;
-            else if (game_over && confirm)
-                *confirm = 1;
         }
     }
     ms = (double)(SDL_GetPerformanceCounter() - t0) * 1000.0 / (double)SDL_GetPerformanceFrequency();
@@ -509,7 +521,7 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
     game_init(&game, 1);
     for (int tick = 0; tick < frames; tick++) {
         InputFrame in;
-        poll_frame(0, 0, NULL);
+        poll_frame(0);
         script_input(&game, tick, &in, flyer && !flyer_saved);
         if (arm_zap) {
             in.zap = true;
@@ -630,9 +642,74 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
     return 0;
 }
 
+static int save_view(SDL_Window *window, Session *session, const char *path)
+{
+    int w;
+    int h;
+    if (window_pixels(window, &w, &h) != 0)
+        return 1;
+    render_session(session, w, h, 0.0f);
+    SDL_GL_SwapWindow(window);
+    if (render_screenshot(path, w, h) != 0)
+        return 1;
+    fprintf(stderr, "screenshot %s (%dx%d) screen %d\n", path, w, h, (int)session->screen);
+    return 0;
+}
+
+static int run_meta_shots(SDL_Window *window, const char *title, const char *pause,
+                          const char *initials, const char *scores)
+{
+    Session session;
+    if (title) {
+        session_init(&session, 1);
+        session.attract = 2.4f;
+        if (save_view(window, &session, title) != 0)
+            return 1;
+    }
+    if (pause) {
+        session_init(&session, 1);
+        game_init_difficulty(&session.game, 3, DIFF_ADVANCED);
+        session.game.enemies[0].alive = true;
+        session.game.enemies[0].kind = ENEMY_WALKER;
+        session.game.enemies[0].lane = 2;
+        session.game.enemies[0].dist = 0.62f;
+        session.game.enemies[1].alive = true;
+        session.game.enemies[1].kind = ENEMY_WALKER;
+        session.game.enemies[1].lane = 5;
+        session.game.enemies[1].dist = 0.38f;
+        session.screen = SCREEN_PAUSE;
+        session.pause_item = PAUSE_RESUME;
+        if (save_view(window, &session, pause) != 0)
+            return 1;
+    }
+    if (initials) {
+        session_init(&session, 1);
+        session.screen = SCREEN_INITIALS;
+        session.initials[0] = 'D';
+        session.initials[1] = 'A';
+        session.initials[2] = 'N';
+        session.initial_slot = 1;
+        session.pending_score = 2400;
+        if (save_view(window, &session, initials) != 0)
+            return 1;
+    }
+    if (scores) {
+        session_init(&session, 1);
+        scores_insert(&session.scores, DIFF_ADVANCED, "DAN", 2400);
+        scores_insert(&session.scores, DIFF_ADVANCED, "MAX", 1800);
+        scores_insert(&session.scores, DIFF_ADVANCED, "ACE", 900);
+        session.screen = SCREEN_SCORES;
+        session.score_diff = DIFF_ADVANCED;
+        if (save_view(window, &session, scores) != 0)
+            return 1;
+    }
+    return 0;
+}
+
 static int run_interactive(SDL_Window *window, double soak_sec)
 {
-    GameState game;
+    Session session;
+    char score_path[512];
     uint64_t freq = SDL_GetPerformanceFrequency();
     uint64_t prev = SDL_GetPerformanceCounter();
     uint64_t soak_deadline = 0;
@@ -641,14 +718,18 @@ static int run_interactive(SDL_Window *window, double soak_sec)
     uint32_t seed = (uint32_t)prev;
     if (seed == 0)
         seed = 1;
-    game_init(&game, seed);
+    session_init(&session, seed);
+    score_path[0] = '\0';
+    if (scores_default_path(score_path, (int)sizeof score_path) == 0)
+        scores_load(&session.scores, score_path);
+    else
+        fprintf(stderr, "scores: no home directory, this session will not be saved\n");
     if (soak_sec > 0.0)
         soak_deadline = prev + (uint64_t)(soak_sec * (double)freq);
 
     while (running) {
-        InputFrame in;
+        SessionInput sin;
         const bool *keys;
-        int confirm = 0;
         uint64_t now;
         double elapsed;
         int steps;
@@ -656,25 +737,27 @@ static int run_interactive(SDL_Window *window, double soak_sec)
 
         if (soak_deadline)
             flood_virtual();
-        if (poll_frame(1, game.state == STATE_GAME_OVER, &confirm))
+        if (poll_frame(1))
             running = 0;
         if (!running)
             break;
 
         keys = SDL_GetKeyboardState(NULL);
-        memset(&in, 0, sizeof in);
-        if (game.state == STATE_GAME_OVER) {
-            in.confirm = confirm;
-        } else {
-            in.left = keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A];
-            in.right = keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D];
-            in.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_J];
-            in.zap = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_LSHIFT] ||
-                     keys[SDL_SCANCODE_RSHIFT];
-        }
+        memset(&sin, 0, sizeof sin);
+        sin.play.left = keys[SDL_SCANCODE_LEFT] || keys[SDL_SCANCODE_A];
+        sin.play.right = keys[SDL_SCANCODE_RIGHT] || keys[SDL_SCANCODE_D];
+        sin.play.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_J];
+        sin.play.zap = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_LSHIFT] ||
+                       keys[SDL_SCANCODE_RSHIFT];
+        sin.up = keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W];
+        sin.down = keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S];
+        sin.accept = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER] ||
+                     keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_J];
+        sin.pause = keys[SDL_SCANCODE_ESCAPE] || keys[SDL_SCANCODE_P];
         if (pad) {
             PadState axes;
             Sint16 axis;
+            float stick_y;
             memset(&axes, 0, sizeof axes);
             axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
             axes.stick_x = axis / 32767.0f;
@@ -689,7 +772,17 @@ static int run_interactive(SDL_Window *window, double soak_sec)
             axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
             axes.lt = axis > 0 ? axis / 32767.0f : 0.0f;
             axes.start = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_START);
-            pad_apply(&in, &axes);
+            pad_apply(&sin.play, &axes);
+            axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+            stick_y = axis / 32767.0f;
+            if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_UP) || stick_y < -PAD_DEADZONE)
+                sin.up = true;
+            if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_DOWN) || stick_y > PAD_DEADZONE)
+                sin.down = true;
+            if (axes.a)
+                sin.accept = true;
+            if (axes.start)
+                sin.pause = true;
         }
 
         now = SDL_GetPerformanceCounter();
@@ -698,19 +791,30 @@ static int run_interactive(SDL_Window *window, double soak_sec)
         steps = game_frame_steps(&acc, elapsed);
         {
             int ran = steps;
+            int simulated = 0;
             while (steps-- > 0) {
-                game_update(&game, &in, STARPOST_DT);
-                audio_consume(&game);
+                if (session_update(&session, &sin, STARPOST_DT)) {
+                    audio_consume(&session.game);
+                    simulated = 1;
+                }
             }
-            if (ran == 0)
-                synth_set_flyers(&synth, flyer_count_alive(&game));
+            if (!simulated &&
+                (session.screen == SCREEN_PLAY || session.screen == SCREEN_PAUSE))
+                synth_set_flyers(&synth, flyer_count_alive(&session.game));
+            if (session.scores_dirty && score_path[0]) {
+                if (scores_save(&session.scores, score_path) != 0)
+                    fprintf(stderr, "scores: could not save %s\n", score_path);
+                session.scores_dirty = 0;
+            }
             audio_pump();
 
             if (window_pixels(window, &w, &h) != 0)
                 return 1;
-            render_draw(&game, w, h, ran > 0 ? (float)ran * STARPOST_DT : (float)elapsed);
+            render_session(&session, w, h, ran > 0 ? (float)ran * STARPOST_DT : (float)elapsed);
         }
         SDL_GL_SwapWindow(window);
+        if (session.quit)
+            break;
         if (soak_deadline && SDL_GetPerformanceCounter() >= soak_deadline)
             break;
     }
@@ -732,16 +836,23 @@ int main(int argc, char **argv)
     const char *burst = NULL;
     const char *flyer = NULL;
     const char *zapshot = NULL;
+    const char *title_shot = NULL;
+    const char *pause_shot = NULL;
+    const char *initials_shot = NULL;
+    const char *scores_shot = NULL;
     int parsed;
     int scripted;
+    int meta;
     double soak = 0.0;
     SDL_Window *window;
     SDL_GLContext gl;
     int rc;
 
-    parsed = parse_args(argc, argv, &frames, &shot, &nobloom, &burst, &flyer, &zapshot, &soak);
+    parsed = parse_args(argc, argv, &frames, &shot, &nobloom, &burst, &flyer, &zapshot, &soak,
+                        &title_shot, &pause_shot, &initials_shot, &scores_shot);
     if (parsed != 0)
         return parsed < 0 ? 1 : 0;
+    meta = title_shot || pause_shot || initials_shot || scores_shot;
     scripted = soak <= 0.0 && (frames > 0 || shot != NULL || nobloom != NULL || burst != NULL ||
                                flyer != NULL || zapshot != NULL);
     if ((shot || nobloom || burst || flyer || zapshot) && frames <= 0)
@@ -804,8 +915,13 @@ int main(int argc, char **argv)
         return 1;
     }
 
-    rc = scripted ? run_scripted(window, frames, shot, nobloom, burst, flyer, zapshot)
-                  : run_interactive(window, soak);
+    rc = 0;
+    if (meta)
+        rc = run_meta_shots(window, title_shot, pause_shot, initials_shot, scores_shot);
+    if (rc == 0 && scripted)
+        rc = run_scripted(window, frames, shot, nobloom, burst, flyer, zapshot);
+    else if (rc == 0 && !meta)
+        rc = run_interactive(window, soak);
     if (pad)
         SDL_CloseGamepad(pad);
     if (audio_stream)

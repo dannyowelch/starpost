@@ -1,4 +1,4 @@
-# Starpost Returns — Design Doc (v0.6, 2026-10-13)
+# Starpost Returns — Design Doc (v0.7, 2026-10-13)
 
 Unofficial sequel to Commodore's *Star Post* (VIC-20 1982 / C64 1983). Neon vector look (Tempest-style).
 Linux first (Omarchy/Arch, Wayland/Hyprland). C + SDL3 + OpenGL, no engine.
@@ -101,11 +101,22 @@ All three knobs live in `WAVE_TABLE` in `src/game/game.c`. For wave `n` (1-based
 | Spawn interval | `0.90 - i * 0.04` | minimum 0.22 |
 | Flyers | 0 before wave 2; then `1 + (wave - 2) / 2` | 4 |
 
-Later waves spawn more walkers over a longer window, move them faster, and spawn them more often. Flyers are extra on top of the walker quota, spread through the wave, and the wave does not clear while one is alive. `wave_config` is a pure function.
+Later waves spawn more walkers over a longer window, move them faster, and spawn them more often. Flyers are extra on top of the walker quota, spread through the wave, and the wave does not clear while one is alive. `wave_config` is the base table (Advanced). `wave_config_diff` applies a difficulty tune, then clamps count to 1..48, speed to 1.05, and spawn interval to 0.12..2.
+
+| | Beginner | Advanced | Hyper |
+| --- | --- | --- | --- |
+| Speed | ×0.75 | ×1 | ×1.35 |
+| Walker count | −2 | +0 | +3 |
+| Spawn interval | ×1.35 | ×1 | ×0.75 |
+| First flyer wave | 4 | 2 | 1 |
+| Shield recharge | 3 | 2 | 1 |
 
 ## Controls
-- Keyboard: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, Z or Shift superzap, M mute, `-`/`=` volume, F2 toggles bloom, Enter/R (or any other key except Esc) restart after game over, Esc quit. Remappable `KeyMap` is later.
-- Gamepad (SDL3, hot-plug): D-pad or left stick left/right steps one lane. The stick uses a deadzone of 0.35 and stays held until it returns inside 0.20, so chatter on the threshold does not retrigger the step. Past the deadzone it is a held direction and the same repeat as the keyboard applies. It does not pick a lane from the stick angle. South/A or the right trigger fires. East/B or the left trigger superzaps. Start restarts after game over. Keyboard and pad are OR'd together. One frame drains at most `STARPOST_MAX_PAD_EVENTS` (64) events. A slow frame adds at most `STARPOST_MAX_FRAME_SEC` (0.25 s) to the accumulator and then runs at most `STARPOST_MAX_SIM_STEPS` (8) ticks. The SDL HIDAPI drivers for Switch, 8BitDo, and Xbox pads are left off so an SF30 Pro is read through the kernel evdev node; those drivers write LED and report-mode packets with a blocking hidraw `write()` on the poll thread. `STARPOST_LOG_GAMEPAD=1` prints device identity, duplicate vid/pid, event counts, and any poll over 50 ms.
+- Title menu: Start, Difficulty, High Scores, Quit. Up/Down or the left stick / D-pad move. Enter, Space, or South/A accepts. Esc or East/B is not required on the title; Quit is the menu item. Difficulty opens Beginner / Advanced / Hyper. High Scores shows the top 10 for one difficulty; Left/Right switches difficulty.
+- Keyboard in play: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, Z or Shift superzap, M mute, `-`/`=` volume, F2 toggles bloom. Esc or P pauses. Esc does not quit from play.
+- Pause: the simulation stops. Resume, or Quit to title. Esc, P, or Start toggles pause. Up/Down and Enter/A use the pause menu.
+- Game over: a score that makes the top 10 for the current difficulty opens 3-letter initials (Up/Down change the letter, Left/Right change the slot, Enter/A or Esc commits). Otherwise the game returns to the title. Score 0 does not enter the table.
+- Gamepad (SDL3, hot-plug): D-pad or left stick left/right steps one lane. The stick uses a deadzone of 0.35 and stays held until it returns inside 0.20, so chatter on the threshold does not retrigger the step. Past the deadzone it is a held direction and the same repeat as the keyboard applies. It does not pick a lane from the stick angle. South/A or the right trigger fires. East/B or the left trigger superzaps. Start pauses during play and accepts initials. Keyboard and pad are OR'd together. One frame drains at most `STARPOST_MAX_PAD_EVENTS` (64) events. A slow frame adds at most `STARPOST_MAX_FRAME_SEC` (0.25 s) to the accumulator and then runs at most `STARPOST_MAX_SIM_STEPS` (8) ticks. The SDL HIDAPI drivers for Switch, 8BitDo, and Xbox pads are left off so an SF30 Pro is read through the kernel evdev node; those drivers write LED and report-mode packets with a blocking hidraw `write()` on the poll thread. `STARPOST_LOG_GAMEPAD=1` prints device identity, duplicate vid/pid, event counts, and any poll over 50 ms.
 - Superzap spends one carried charge to kill every enemy currently on screen, with a full-screen flash and the usual death bursts. Empty-handed, it does nothing. The HUD shows `ZAP` and the charge count.
 
 ## Rendering
@@ -124,7 +135,8 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 ## Build
 - CMake (>=3.20). SDL3 via pkg-config (`pkg_check_modules`). OpenGL via CMake's FindOpenGL and the system `GL/gl.h` + `GL/glext.h` prototypes. No vendored glad and no third-party assets; Linux libGL exports the entry points we call.
 - `cmake -B build && cmake --build build`. Targets: `starpost`, `starpost_tests`.
-- Layout: `src/game/` (pure logic), `src/audio/` (synth), `src/input/` (pad mapping), `src/fx/` (fragments and shake), `src/platform/` (SDL), `src/render/` (GL), `tests/`.
+- High scores: top 10 per difficulty in `STARPOST-SCORES 1` text. Path is `$XDG_DATA_HOME/starpost-returns/scores.txt`, or `~/.local/share/starpost-returns/scores.txt` when `XDG_DATA_HOME` is unset. The write is to a sibling `.tmp` file, `fsync`, then `rename`. A missing file or a bad header loads as an empty table. A bad line keeps the rows parsed before it.
+- Layout: `src/game/` (pure logic), `src/meta/` (menus, pause, initials, scores), `src/audio/` (synth), `src/input/` (pad mapping), `src/fx/` (fragments and shake), `src/platform/` (SDL), `src/render/` (GL), `tests/`.
 - Flags: `-std=c11 -Wall -Wextra -Werror`.
 
 ## Testing
@@ -138,5 +150,5 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - **M3 Neon pass**: HDR bloom (bright-pass, separable blur, additive composite, F2 toggle), halo-and-core lines, explosion fragments, short screen shake, a wider flashing beam.
 - **M4 Flyer + superzap**: spiralling flyer, lane-window hit rule, heavier base hit, superzap charges (1 per wave, accumulating, capped) with a screen flash.
 - **M5 Audio + gamepad**: procedural SFX on an SDL3 stream, mute and volume, SDL3 gamepad with deadzone and hot-plug. One lane at a time.
-- **M6 Meta**: title screen, high scores saved to disk, pause, difficulty select (Beginner/Advanced/Hyper).
+- **M6 Meta**: title screen with a rotating lane web, pause, Beginner/Advanced/Hyper, initials, and a saved top-10 table per difficulty.
 - Later: power-ups, new enemy types, modes, faster frenetic pacing.

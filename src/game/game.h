@@ -67,6 +67,21 @@ typedef struct {
     bool confirm;
 } InputFrame;
 
+typedef enum {
+    DIFF_BEGINNER = 0,
+    DIFF_ADVANCED = 1,
+    DIFF_HYPER = 2,
+    DIFF_COUNT = 3
+} Difficulty;
+
+typedef struct {
+    float speed_scale;
+    int count_add;
+    float interval_scale;
+    int flyer_start;
+    int shield_recharge;
+} DiffTune;
+
 typedef struct {
     int wave;
     int enemy_count;
@@ -106,6 +121,8 @@ typedef struct {
     bool prev_zap;
     int shield;
     int shield_max;
+    int shield_recharge;
+    Difficulty difficulty;
     uint32_t score;
     uint32_t rng;
     GamePlayState state;
@@ -114,10 +131,14 @@ typedef struct {
 } GameState;
 
 WaveConfig wave_config(int wave);
+const DiffTune *diff_tune(Difficulty diff);
+const char *diff_name(Difficulty diff);
+WaveConfig wave_config_diff(int wave, Difficulty diff);
 float starpost_lane_center(int lane);
 int starpost_lane_from_angle(float angle);
 int starpost_flyer_in_lane(float angle, int lane);
 void game_init(GameState *g, uint32_t seed);
+void game_init_difficulty(GameState *g, uint32_t seed, Difficulty diff);
 void game_update(GameState *g, const InputFrame *in, float dt);
 /* Remaining fraction of this wave. 1 before any enemy is resolved, 0 when
    every walker and flyer has been killed or has reached the base. */

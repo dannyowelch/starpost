@@ -43,23 +43,26 @@ SDL_VIDEODRIVER=x11 xvfb-run -a ./build/starpost --frames 600
 
 | Key | Action |
 | --- | --- |
-| Left / A | Rotate one lane counter-clockwise |
-| Right / D | Rotate one lane clockwise |
-| Space / J | Fire the pulse beam down the tracer's lane |
+| Up / Down or W / S | Move through menus and initials |
+| Left / A | Rotate one lane counter-clockwise, or change an initials slot |
+| Right / D | Rotate one lane clockwise, or change an initials slot |
+| Space / J / Enter | Fire in play. Accept a menu item or initials |
 | Z or Shift | Superzap, if a charge is stored |
 | M | Mute |
 | `-` / `=` | Volume down / up |
 | F2 | Toggle bloom |
-| Enter, R, or any other key except Esc | Restart after game over |
-| Esc | Quit |
+| Esc or P | Pause during play. Esc also resumes, leaves a menu, or commits initials |
 
-A connected gamepad is picked up when it is plugged in. D-pad or left stick left/right steps one lane (stick deadzone 0.35, held until the stick returns inside 0.20, then the same hold-repeat as the keys). A or the right trigger fires. B or the left trigger superzaps. Start restarts after game over. The stick does not choose a lane directly. Keyboard and pad can be used together. The Switch, 8BitDo, and Xbox HIDAPI drivers stay off so an 8BitDo SF30 Pro is read from the kernel device instead of a blocking hidraw write on the poll thread. `STARPOST_LOG_GAMEPAD=1` logs the pad and any poll that takes longer than 50 ms.
+The game opens on a title menu: Start, Difficulty, High Scores, Quit. Difficulty is Beginner, Advanced, or Hyper. High scores are the top 10 for each difficulty, saved under `$XDG_DATA_HOME/starpost-returns/scores.txt` (or `~/.local/share/starpost-returns/scores.txt`).
 
-Hold left or right to keep rotating. The beam destroys the nearest walker in that lane (100 points) or a flyer while it is inside the tracer's lane window (300 points). A walker at the base drains 1 shield; a flyer drains 3. From wave 2 a yellow flyer spirals across the lanes. Each wave grants one superzap charge, kept up to 4, shown as `ZAP` in the HUD. The bar at the top counts down the wave: it starts full and empties as walkers and flyers are killed or reach the base. Shield is the pips around the base. Superzap clears everything on screen. Clearing a wave shows WAVE CLEAR, adds 500, and restores 2 shield up to 8. At zero shield the base turns red until you restart.
+A connected gamepad is picked up when it is plugged in. D-pad or left stick left/right steps one lane (stick deadzone 0.35, held until the stick returns inside 0.20, then the same hold-repeat as the keys). A or the right trigger fires. B or the left trigger superzaps. Start pauses during play. The stick does not choose a lane directly. Keyboard and pad can be used together. The Switch, 8BitDo, and Xbox HIDAPI drivers stay off so an 8BitDo SF30 Pro is read from the kernel device instead of a blocking hidraw write on the poll thread. `STARPOST_LOG_GAMEPAD=1` logs the pad and any poll that takes longer than 50 ms.
+
+Hold left or right to keep rotating. The beam destroys the nearest walker in that lane (100 points) or a flyer while it is inside the tracer's lane window (300 points). A walker at the base drains 1 shield; a flyer drains 3. From wave 2 a yellow flyer spirals across the lanes. Each wave grants one superzap charge, kept up to 4, shown as `ZAP` in the HUD. The bar at the top counts down the wave: it starts full and empties as walkers and flyers are killed or reach the base. Shield is the pips around the base. Superzap clears everything on screen. Clearing a wave shows WAVE CLEAR, adds 500, and restores 2 shield up to 8. At zero shield the run ends. A score inside the top 10 asks for three initials, then the title returns. Esc pauses; it does not quit. The pause menu can resume or return to the title. Advanced matches the base wave table. Beginner is slower and sparser, with flyers from wave 4 and a shield recharge of 3. Hyper is faster and denser, with flyers from wave 1 and a shield recharge of 1.
 
 ## Layout
 
 - `src/game/` — simulation. No SDL or OpenGL, so the tests run headless.
+- `src/meta/` — title, pause, difficulty, initials, and the score file. No SDL or OpenGL.
 - `src/audio/` — procedural synth. No SDL and no samples.
 - `src/input/` — gamepad axes to the shared input frame, including the stick deadzone.
 - `src/platform/` — window, keyboard, gamepad hot-plug, audio stream, fixed timestep.
