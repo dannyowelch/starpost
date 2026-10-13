@@ -569,6 +569,35 @@ static void test_game_over_skips_wave_clear(void)
     CHECK(g.score == 0);
 }
 
+static void test_frame_step_cap(void)
+{
+    double acc = 0.0;
+    int steps;
+
+    CHECK(STARPOST_MAX_SIM_STEPS == 8);
+    CHECK(STARPOST_MAX_FRAME_SEC == 0.25);
+
+    steps = game_frame_steps(&acc, 10.0);
+    CHECK(steps == STARPOST_MAX_SIM_STEPS);
+    CHECK(acc > 0.0);
+    CHECK(acc < STARPOST_MAX_FRAME_SEC);
+
+    acc = 0.0;
+    steps = game_frame_steps(&acc, (double)STARPOST_DT);
+    CHECK(steps == 1);
+    CHECK(acc < 1e-9);
+    CHECK(acc > -1e-9);
+
+    acc = 0.0;
+    steps = game_frame_steps(&acc, -5.0);
+    CHECK(steps == 0);
+    CHECK(acc == 0.0);
+
+    acc = 0.0;
+    steps = game_frame_steps(NULL, 1.0);
+    CHECK(steps == 0);
+}
+
 int main(void)
 {
     test_lane_step_and_wrap();
@@ -584,6 +613,7 @@ int main(void)
     test_flyer_hit_window_and_damage();
     test_superzap_charges();
     test_held_fire_interval();
+    test_frame_step_cap();
     if (fails) {
         fprintf(stderr, "%d/%d checks failed\n", fails, checks);
         return 1;

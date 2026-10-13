@@ -25,6 +25,9 @@
 #define STARPOST_BEAM_TIME 0.18f
 #define STARPOST_FIRE_COOLDOWN 0.32f
 #define STARPOST_TURN_REPEAT 0.13f
+/* A slow frame must not replay an unbounded stretch of simulation. */
+#define STARPOST_MAX_FRAME_SEC 0.25
+#define STARPOST_MAX_SIM_STEPS 8
 
 typedef enum {
     ENEMY_NONE = 0,
@@ -115,5 +118,7 @@ int starpost_lane_from_angle(float angle);
 int starpost_flyer_in_lane(float angle, int lane);
 void game_init(GameState *g, uint32_t seed);
 void game_update(GameState *g, const InputFrame *in, float dt);
+/* Clamp one wall-clock slice and return how many fixed steps to run. */
+int game_frame_steps(double *acc, double elapsed);
 
 #endif

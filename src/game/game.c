@@ -138,6 +138,24 @@ void game_init(GameState *g, uint32_t seed)
     begin_wave(g, 1);
 }
 
+int game_frame_steps(double *acc, double elapsed)
+{
+    int steps = 0;
+
+    if (!acc)
+        return 0;
+    if (elapsed < 0.0)
+        elapsed = 0.0;
+    if (elapsed > STARPOST_MAX_FRAME_SEC)
+        elapsed = STARPOST_MAX_FRAME_SEC;
+    *acc += elapsed;
+    while (*acc >= (double)STARPOST_DT && steps < STARPOST_MAX_SIM_STEPS) {
+        *acc -= (double)STARPOST_DT;
+        steps++;
+    }
+    return steps;
+}
+
 static void emit(GameState *g, uint8_t id)
 {
     if (g->snd_count >= GAME_SND_MAX)
