@@ -70,6 +70,67 @@ WaveConfig wave_config(int wave)
     return c;
 }
 
+const DiffTune *diff_tune(Difficulty diff)
+{
+    /* Advanced is the base table: scale 1, no count offset, flyers from
+       wave 2, recharge STARPOST_SHIELD_RECHARGE. Beginner is slower,
+       sparser, and later flyers. Hyper is the opposite. */
+    static const DiffTune tunes[DIFF_COUNT] = {
+        {0.75f, -2, 1.35f, 4, 3},
+        {1.00f, 0, 1.00f, 2, STARPOST_SHIELD_RECHARGE},
+        {1.35f, 3, 0.75f, 1, 1},
+    };
+    if (diff < 0 || diff >= DIFF_COUNT)
+        diff = DIFF_ADVANCED;
+    return &tunes[diff];
+}
+
+const char *diff_name(Difficulty diff)
+{
+    static const char *names[DIFF_COUNT] = {"BEGINNER", "ADVANCED", "HYPER"};
+    if (diff < 0 || diff >= DIFF_COUNT)
+        diff = DIFF_ADVANCED;
+    return names[diff];
+}
+
+static int flyer_count_for(int wave, int start)
+{
+    int n;
+    if (wave < start)
+        return 0;
+    n = 1 + (wave - start) / 2;
+    if (n > 4)
+        n = 4;
+    if (n < 0)
+        n = 0;
+    return n;
+}
+
+WaveConfig wave_config_diff(int wave, Difficulty diff)
+{
+    const DiffTune *t = diff_tune(diff);
+    WaveConfig c = wave_config(wave);
+    int flyers;
+    c.enemy_count += t->count_add;
+    if (c.enemy_count < 1)
+        c.enemy_count = 1;
+    if (c.enemy_count > 48)
+        c.enemy_count = 48;
+    c.enemy_speed *= t->speed_scale;
+    if (c.enemy_speed > 1.05f)
+        c.enemy_speed = 1.05f;
+    c.spawn_interval *= t->interval_scale;
+    if (c.spawn_interval < 0.12f)
+        c.spawn_interval = 0.12f;
+    if (c.spawn_interval > 2.0f)
+        c.spawn_interval = 2.0f;
+    flyers = flyer_count_for(c.wave, t->flyer_start);
+    if (c.enemy_count + flyers > STARPOST_MAX_ENEMIES)
+        flyers = STARPOST_MAX_ENEMIES - c.enemy_count;
+    c.flyer_count = flyers;
+    return c;
+}
+
 float starpost_lane_center(int lane)
 {
     const float sector = 6.2831853f / (float)STARPOST_LANES;
@@ -115,7 +176,7 @@ int starpost_flyer_in_lane(float angle, int lane)
 static void begin_wave(GameState *g, int wave)
 {
     memset(g->enemies, 0, sizeof g->enemies);
-    g->cfg = wave_config(wave);
+    g->cfg = wave_config_diff(wave, g->difficulty);
     g->spawned = 0;
     g->flyers_spawned = 0;
     g->killed = 0;
@@ -128,15 +189,26 @@ static void begin_wave(GameState *g, int wave)
     g->state = STATE_PLAYING;
 }
 
-void game_init(GameState *g, uint32_t seed)
+void game_init_difficulty(GameState *g, uint32_t seed, Difficulty diff)
 {
+    if (!g)
+        return;
+    if (diff < 0 || diff >= DIFF_COUNT)
+        diff = DIFF_ADVANCED;
     memset(g, 0, sizeof *g);
     if (seed == 0)
         seed = 1;
     g->rng = seed;
+    g->difficulty = diff;
     g->shield = STARPOST_SHIELD_MAX;
     g->shield_max = STARPOST_SHIELD_MAX;
+    g->shield_recharge = diff_tune(diff)->shield_recharge;
     begin_wave(g, 1);
+}
+
+void game_init(GameState *g, uint32_t seed)
+{
+    game_init_difficulty(g, seed, DIFF_ADVANCED);
 }
 
 float starpost_wave_gauge(const GameState *g)
@@ -344,7 +416,7 @@ static int any_alive(const GameState *g)
 
 static void enter_clear(GameState *g)
 {
-    g->shield += STARPOST_SHIELD_RECHARGE;
+    g->shield += g->shield_recharge;
     if (g->shield > g->shield_max)
         g->shield = g->shield_max;
     g->score += (uint32_t)STARPOST_SCORE_WAVE;

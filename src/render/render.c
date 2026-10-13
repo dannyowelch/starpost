@@ -1,6 +1,7 @@
 #include "render.h"
 
 #include "fx/fx.h"
+#include "meta/meta.h"
 
 #define GL_GLEXT_PROTOTYPES 1
 #include <GL/gl.h>
@@ -383,6 +384,22 @@ static const uint8_t FONT[][FONT_STROKES * 4] = {
     /* O */ {0, 0, 4, 0, 4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     /* Z */ {0, 6, 4, 6, 4, 6, 0, 0, 0, 0, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
     /* P */ {0, 0, 0, 6, 0, 6, 4, 6, 4, 6, 4, 3, 4, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* B */ {0, 0, 0, 6, 0, 6, 4, 6, 4, 6, 4, 3, 4, 3, 0, 3, 0, 0, 4, 0, 4, 0, 4, 3},
+    /* D */ {0, 0, 0, 6, 0, 6, 3, 6, 3, 6, 4, 3, 4, 3, 3, 0, 3, 0, 0, 0, 0, 0, 0, 0},
+    /* F */ {0, 0, 0, 6, 0, 6, 4, 6, 0, 3, 3, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* G */ {4, 6, 0, 6, 0, 6, 0, 0, 0, 0, 4, 0, 4, 0, 4, 3, 4, 3, 2, 3, 0, 0, 0, 0},
+    /* H */ {0, 0, 0, 6, 4, 0, 4, 6, 0, 3, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* I */ {2, 0, 2, 6, 1, 0, 3, 0, 1, 6, 3, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* M */ {0, 0, 0, 6, 0, 6, 2, 3, 2, 3, 4, 6, 4, 6, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* N */ {0, 0, 0, 6, 0, 6, 4, 0, 4, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* Q */ {0, 0, 4, 0, 4, 0, 4, 6, 4, 6, 0, 6, 0, 6, 0, 0, 2, 2, 4, 0, 0, 0, 0, 0},
+    /* T */ {0, 6, 4, 6, 2, 6, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* U */ {0, 6, 0, 0, 0, 0, 4, 0, 4, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* Y */ {0, 6, 2, 3, 4, 6, 2, 3, 2, 3, 2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* - */ {0, 3, 4, 3, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* J */ {1, 6, 3, 6, 3, 6, 3, 1, 3, 1, 0, 0, 0, 0, 0, 2, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* K */ {0, 0, 0, 6, 0, 3, 4, 6, 0, 3, 4, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
+    /* X */ {0, 6, 4, 0, 4, 6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0},
 };
 
 static int font_index(char c)
@@ -412,6 +429,38 @@ static int font_index(char c)
         return 19;
     case 'P':
         return 20;
+    case 'B':
+        return 21;
+    case 'D':
+        return 22;
+    case 'F':
+        return 23;
+    case 'G':
+        return 24;
+    case 'H':
+        return 25;
+    case 'I':
+        return 26;
+    case 'M':
+        return 27;
+    case 'N':
+        return 28;
+    case 'Q':
+        return 29;
+    case 'T':
+        return 30;
+    case 'U':
+        return 31;
+    case 'Y':
+        return 32;
+    case '-':
+        return 33;
+    case 'J':
+        return 34;
+    case 'K':
+        return 35;
+    case 'X':
+        return 36;
     default:
         return -1;
     }
@@ -450,6 +499,149 @@ static void draw_text(float x, float y, float h, const char *s, float r, float g
             draw_glyph(x, y, h, index, r, g, b);
         x += adv;
     }
+}
+
+static void text_at(float x, float y, float h, const char *s, float r, float g, float b)
+{
+    batch = &hud_batch;
+    draw_text(x, y, h, s, r, g, b);
+}
+
+static void text_center(float y, float h, const char *s, float r, float g, float b)
+{
+    float width = (float)strlen(s) * text_advance(h);
+    text_at(-width * 0.5f, y, h, s, r, g, b);
+}
+
+static void menu_line(int index, int selected, float y, const char *label)
+{
+    if (index == selected)
+        text_center(y, 0.055f, label, 0.75f, 1.35f, 1.55f);
+    else
+        text_center(y, 0.055f, label, 0.28f, 0.48f, 0.62f);
+}
+
+static void attract_web(float time)
+{
+    const float span = 6.2831853f / (float)STARPOST_LANES;
+    float rot = time * 0.35f;
+    int i;
+    batch = &play_batch;
+    for (i = 0; i < STARPOST_LANES; i++) {
+        float a0 = rot + 1.5707963f - (float)i * span;
+        float a1 = a0 - span;
+        float x0 = cosf(a0) * 0.36f;
+        float y0 = sinf(a0) * 0.36f;
+        float x1 = cosf(a1) * 0.36f;
+        float y1 = sinf(a1) * 0.36f;
+        float ix = cosf(a0) * 0.06f;
+        float iy = sinf(a0) * 0.06f;
+        stroke(ix, iy, x0, y0, 0.004f, 0.22f, 0.42f, 1.10f);
+        stroke(x0, y0, x1, y1, 0.004f, 0.18f, 0.36f, 0.95f);
+    }
+    for (i = 0; i < 3; i++) {
+        float phase = fmodf(time * 0.12f + (float)i * 0.33f, 1.0f);
+        float dist = 1.0f - phase;
+        float rad = 0.07f + dist * 0.29f;
+        float a = rot + 1.5707963f - (float)(i * 3) * span;
+        float x = cosf(a) * rad;
+        float y = sinf(a) * rad;
+        float s = 0.020f;
+        stroke(x, y + s, x + s, y, 0.006f, 1.55f, 0.18f, 0.95f);
+        stroke(x + s, y, x, y - s, 0.006f, 1.55f, 0.18f, 0.95f);
+        stroke(x, y - s, x - s, y, 0.006f, 1.55f, 0.18f, 0.95f);
+        stroke(x - s, y, x, y + s, 0.006f, 1.55f, 0.18f, 0.95f);
+    }
+}
+
+static void reset_batches(void)
+{
+    play_batch.verts = play_verts;
+    play_batch.cap = (int)(sizeof play_verts / sizeof play_verts[0]);
+    play_batch.count = 0;
+    hud_batch.verts = hud_verts;
+    hud_batch.cap = (int)(sizeof hud_verts / sizeof hud_verts[0]);
+    hud_batch.count = 0;
+}
+
+static void draw_title(const Session *s)
+{
+    static const char *labels[TITLE_COUNT] = {"START", "DIFFICULTY", "HIGH SCORES", "QUIT"};
+    int i;
+    reset_batches();
+    attract_web(s->attract);
+    text_center(0.78f, 0.095f, "STARPOST", 0.65f, 1.25f, 1.55f);
+    text_center(0.64f, 0.048f, "RETURNS", 1.35f, 0.85f, 0.35f);
+    text_center(0.50f, 0.032f, diff_name(s->difficulty), 0.45f, 0.85f, 1.05f);
+    for (i = 0; i < TITLE_COUNT; i++)
+        menu_line(i, s->title_item, -0.38f - (float)i * 0.11f, labels[i]);
+}
+
+static void draw_difficulty(const Session *s)
+{
+    int i;
+    reset_batches();
+    text_center(0.55f, 0.07f, "DIFFICULTY", 0.65f, 1.15f, 1.45f);
+    for (i = 0; i < DIFF_COUNT; i++)
+        menu_line(i, s->diff_item, 0.22f - (float)i * 0.14f, diff_name((Difficulty)i));
+    text_center(-0.72f, 0.036f, "ESC BACK", 0.28f, 0.48f, 0.62f);
+}
+
+static void draw_scores(const Session *s)
+{
+    char buf[32];
+    int d = s->score_diff;
+    int i;
+    if (d < 0 || d >= DIFF_COUNT)
+        d = 0;
+    reset_batches();
+    text_center(0.82f, 0.06f, "HIGH SCORES", 0.65f, 1.15f, 1.45f);
+    text_center(0.70f, 0.04f, diff_name((Difficulty)d), 1.25f, 0.9f, 0.35f);
+    if (s->scores.count[d] == 0) {
+        text_center(0.2f, 0.05f, "NO SCORES", 0.35f, 0.55f, 0.7f);
+    } else {
+        for (i = 0; i < s->scores.count[d]; i++) {
+            const ScoreRow *row = &s->scores.rows[d][i];
+            snprintf(buf, sizeof buf, "%d %c%c%c %u", i + 1, row->initials[0], row->initials[1],
+                     row->initials[2], row->score);
+            text_center(0.48f - (float)i * 0.09f, 0.04f, buf, 0.75f, 1.2f, 1.4f);
+        }
+    }
+    text_center(-0.82f, 0.032f, "LEFT RIGHT", 0.28f, 0.48f, 0.62f);
+}
+
+static void draw_initials(const Session *s)
+{
+    char one[2];
+    float h = 0.16f;
+    float adv = text_advance(h);
+    float gap = adv * 0.35f;
+    float width = adv * 3.0f + gap * 2.0f;
+    float x = -width * 0.5f;
+    int i;
+    char buf[32];
+    reset_batches();
+    text_center(0.55f, 0.055f, "ENTER INITIALS", 0.65f, 1.15f, 1.45f);
+    snprintf(buf, sizeof buf, "%u", s->pending_score);
+    text_center(0.40f, 0.045f, buf, 0.9f, 0.95f, 1.0f);
+    one[1] = '\0';
+    for (i = 0; i < SCORE_INITIALS; i++) {
+        one[0] = s->initials[i];
+        if (i == s->initial_slot)
+            text_at(x, 0.05f, h, one, 1.45f, 1.15f, 0.35f);
+        else
+            text_at(x, 0.05f, h, one, 0.55f, 1.05f, 1.35f);
+        if (i == s->initial_slot)
+            text_at(x, -0.08f, 0.04f, "-", 1.45f, 1.15f, 0.35f);
+        x += adv + gap;
+    }
+}
+
+static void draw_pause_menu(const Session *s)
+{
+    text_center(0.28f, 0.09f, "PAUSED", 0.7f, 1.3f, 1.55f);
+    menu_line(PAUSE_RESUME, s->pause_item, 0.02f, "RESUME");
+    menu_line(PAUSE_QUIT, s->pause_item, -0.12f, "QUIT TO TITLE");
 }
 
 static void draw_wave_gauge(const GameState *g)
@@ -832,12 +1024,17 @@ static void build_scene(const GameState *g)
     draw_hud(g);
 }
 
-void render_redraw(const GameState *g, int width, int height)
+static void finish_frame(int width, int height)
 {
     float sx, sy;
     view_scale(width, height, &sx, &sy);
-    build_scene(g);
     present(width, height, sx, sy);
+}
+
+void render_redraw(const GameState *g, int width, int height)
+{
+    build_scene(g);
+    finish_frame(width, height);
 }
 
 void render_draw(const GameState *g, int width, int height, float dt)
@@ -846,6 +1043,34 @@ void render_draw(const GameState *g, int width, int height, float dt)
         flicker_time += dt;
     observe(g, dt);
     render_redraw(g, width, height);
+}
+
+void render_session(const struct Session *session, int width, int height, float dt)
+{
+    const Session *s = session;
+    if (!s)
+        return;
+    if (s->screen == SCREEN_PLAY) {
+        render_draw(&s->game, width, height, dt);
+        return;
+    }
+    if (dt > 0.0f)
+        flicker_time += dt;
+    if (s->screen == SCREEN_PAUSE) {
+        build_scene(&s->game);
+        draw_pause_menu(s);
+        finish_frame(width, height);
+        return;
+    }
+    if (s->screen == SCREEN_TITLE)
+        draw_title(s);
+    else if (s->screen == SCREEN_DIFFICULTY)
+        draw_difficulty(s);
+    else if (s->screen == SCREEN_SCORES)
+        draw_scores(s);
+    else
+        draw_initials(s);
+    finish_frame(width, height);
 }
 
 static uint32_t crc_table[256];
