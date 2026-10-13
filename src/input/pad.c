@@ -43,6 +43,12 @@ void pad_apply(InputFrame *io, const PadState *pad)
         io->fire = true;
     if (pad->b || pad->lt > PAD_TRIGGER)
         io->zap = true;
+    if (pad->x)
+        io->spread = true;
+    if (pad->lb)
+        io->energize = true;
+    if (pad->rb)
+        io->slow = true;
     if (pad->start)
         io->confirm = true;
 }

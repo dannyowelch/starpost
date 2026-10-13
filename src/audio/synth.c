@@ -108,6 +108,21 @@ void synth_trigger(Synth *s, int game_snd)
     case GAME_SND_OVER:
         voice_on(s, 2, 280.0f, -420.0f, 0.16f, 0.45f);
         break;
+    case GAME_SND_SPREAD:
+        voice_on(s, 3, 0.0f, 0.0f, 0.14f, 0.07f);
+        voice_on(s, 1, 1320.0f, -2800.0f, 0.16f, 0.10f);
+        break;
+    case GAME_SND_ENERGIZE:
+        voice_on(s, 4, 440.0f, 1600.0f, 0.14f, 0.22f);
+        voice_on(s, 1, 880.0f, 400.0f, 0.08f, 0.16f);
+        break;
+    case GAME_SND_SLOW:
+        voice_on(s, 2, 180.0f, -220.0f, 0.16f, 0.32f);
+        voice_on(s, 4, 330.0f, -80.0f, 0.08f, 0.28f);
+        break;
+    case GAME_SND_DENY:
+        voice_on(s, 1, 140.0f, -40.0f, 0.10f, 0.07f);
+        break;
     default:
         break;
     }

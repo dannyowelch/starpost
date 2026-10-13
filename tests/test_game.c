@@ -434,7 +434,7 @@ static void test_superzap_charges(void)
     InputFrame in;
 
     game_init(&g, 1);
-    CHECK(g.player.zaps == 1);
+    CHECK(g.energy == energy_tune()->start);
     CHECK(g.cfg.flyer_count == 0);
     CHECK(wave_config(2).flyer_count >= 1);
     CHECK(wave_config(4).flyer_count > wave_config(2).flyer_count);
@@ -447,19 +447,11 @@ static void test_superzap_charges(void)
     game_update(&g, &in, 0.05f);
     CHECK(g.state == STATE_PLAYING);
     CHECK(g.cfg.wave == 2);
-    CHECK(g.player.zaps == 2);
-
-    g.player.zaps = STARPOST_ZAP_MAX;
-    g.state = STATE_WAVE_CLEAR;
-    g.clear_timer = 0.01f;
-    g.cfg.wave = 2;
-    game_update(&g, &in, 0.05f);
-    CHECK(g.cfg.wave == 3);
-    CHECK(g.player.zaps == STARPOST_ZAP_MAX);
+    CHECK(g.energy == energy_tune()->start);
 
     game_init(&g, 1);
     g.spawn_timer = 1000.0f;
-    g.player.zaps = 1;
+    CHECK(g.energy >= energy_tune()->zap_cost);
     place(&g, 0, 2, 0.50f, 0.0f);
     g.enemies[1].kind = ENEMY_FLYER;
     g.enemies[1].alive = true;
@@ -473,18 +465,18 @@ static void test_superzap_charges(void)
     game_update(&g, &in, STARPOST_DT);
     CHECK(!g.enemies[0].alive);
     CHECK(!g.enemies[1].alive);
-    CHECK(g.player.zaps == 0);
+    CHECK(g.energy == energy_tune()->start - energy_tune()->zap_cost);
     CHECK(g.score == (uint32_t)STARPOST_SCORE_KILL + (uint32_t)STARPOST_SCORE_FLYER);
     CHECK(g.zap_flash == STARPOST_ZAP_FLASH);
     CHECK(g.state == STATE_PLAYING);
 
     game_update(&g, &in, STARPOST_DT);
-    CHECK(g.player.zaps == 0);
+    CHECK(g.energy == energy_tune()->start - energy_tune()->zap_cost);
     CHECK(g.score == (uint32_t)STARPOST_SCORE_KILL + (uint32_t)STARPOST_SCORE_FLYER);
 
     game_init(&g, 4);
     g.spawn_timer = 1000.0f;
-    g.player.zaps = 0;
+    g.energy = energy_tune()->zap_cost - 1;
     place(&g, 0, 1, 0.30f, 0.0f);
     g.enemies[1].kind = ENEMY_FLYER;
     g.enemies[1].alive = true;
@@ -496,9 +488,10 @@ static void test_superzap_charges(void)
     game_update(&g, &in, STARPOST_DT);
     CHECK(g.enemies[0].alive);
     CHECK(g.enemies[1].alive);
-    CHECK(g.player.zaps == 0);
+    CHECK(g.energy == energy_tune()->zap_cost - 1);
     CHECK(g.score == 0);
     CHECK(g.zap_flash == 0.0f);
+    CHECK(g.deny_flash == energy_tune()->deny_time);
 }
 
 static int count_snd(const GameState *g, int id)
@@ -593,7 +586,7 @@ static void test_wave_gauge(void)
     InputFrame in;
     int quota;
     int i;
-    uint8_t zaps;
+    int energy_before;
 
     game_init(&g, 1);
     CHECK(starpost_wave_gauge(NULL) == 0.0f);
@@ -610,8 +603,8 @@ static void test_wave_gauge(void)
     quota = g.cfg.enemy_count + g.cfg.flyer_count;
     CHECK(quota > g.cfg.enemy_count);
     CHECK(starpost_wave_gauge(&g) == 1.0f);
-    zaps = g.player.zaps;
-    CHECK(zaps >= 1);
+    energy_before = g.energy;
+    CHECK(energy_before >= energy_tune()->zap_cost);
 
     g.spawn_timer = 1000.0f;
     place_enemy(&g, 0, ENEMY_WALKER, 0, 0.55f);
@@ -646,7 +639,7 @@ static void test_wave_gauge(void)
     CHECK(!g.enemies[2].alive);
     CHECK(!g.enemies[3].alive);
     CHECK(!g.enemies[4].alive);
-    CHECK(g.player.zaps == (uint8_t)(zaps - 1));
+    CHECK(g.energy == energy_before - energy_tune()->zap_cost);
     CHECK(starpost_wave_gauge(&g) == gauge_after(quota, 5));
 
     for (i = 0; i < quota - 5; i++)
@@ -665,6 +658,189 @@ static void test_wave_gauge(void)
     CHECK(g.killed == 0);
     CHECK(g.arrived == 0);
     CHECK(starpost_wave_gauge(&g) == 1.0f);
+}
+
+static void test_energy_abilities(void)
+{
+    const EnergyTune *t = energy_tune();
+    GameState g;
+    InputFrame in;
+    float walker_dist;
+    float flyer_dist;
+    int found = 0;
+    uint32_t seed;
+
+    CHECK(t->start == 20);
+    CHECK(t->cap == 100);
+    CHECK(t->wave_grant == 20);
+    CHECK(t->zap_cost == 20);
+    CHECK(t->spread_cost == 1);
+    CHECK(t->energize_cost == 5);
+    CHECK(t->energize_time == 3.0f);
+    CHECK(t->slow_cost == 10);
+    CHECK(t->slow_time == 5.0f);
+    CHECK(t->slow_factor == 0.5f);
+
+    game_init(&g, 1);
+    CHECK(g.energy == 20);
+    g.energy = t->cap - 5;
+    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count;
+    g.spawn_timer = 1000.0f;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.state == STATE_WAVE_CLEAR);
+    CHECK(g.energy == t->cap);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.player.lane = 0;
+    place(&g, 0, 7, 0.80f, 0.0f);
+    place(&g, 1, 7, 0.30f, 0.0f);
+    place(&g, 2, 0, 0.50f, 0.0f);
+    place(&g, 3, 1, 0.40f, 0.0f);
+    place(&g, 4, 3, 0.20f, 0.0f);
+    g.enemies[5].kind = ENEMY_FLYER;
+    g.enemies[5].alive = true;
+    g.enemies[5].dist = 0.60f;
+    g.enemies[5].speed = 0.0f;
+    g.enemies[5].angle = starpost_lane_center(0);
+    g.enemies[5].ang_speed = 0.0f;
+    g.enemies[6].kind = ENEMY_FLYER;
+    g.enemies[6].alive = true;
+    g.enemies[6].dist = 0.60f;
+    g.enemies[6].speed = 0.0f;
+    g.enemies[6].angle = starpost_lane_center(4);
+    g.enemies[6].ang_speed = 0.0f;
+    memset(&in, 0, sizeof in);
+    in.spread = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.energy == t->start - t->spread_cost);
+    CHECK(g.enemies[0].alive);
+    CHECK(!g.enemies[1].alive);
+    CHECK(!g.enemies[2].alive);
+    CHECK(!g.enemies[3].alive);
+    CHECK(g.enemies[4].alive);
+    CHECK(!g.enemies[5].alive);
+    CHECK(g.enemies[6].alive);
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.energy == t->start - t->spread_cost);
+
+    g.energy = 0;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    in.spread = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.energy == 0);
+    CHECK(g.deny_flash == t->deny_time);
+    CHECK(g.enemies[4].alive);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.player.lane = 2;
+    place(&g, 0, 2, 0.70f, 0.0f);
+    place(&g, 1, 2, 0.30f, 0.0f);
+    place(&g, 2, 5, 0.40f, 0.0f);
+    g.enemies[3].kind = ENEMY_FLYER;
+    g.enemies[3].alive = true;
+    g.enemies[3].dist = 0.50f;
+    g.enemies[3].speed = 0.0f;
+    g.enemies[3].ang_speed = 0.0f;
+    g.enemies[3].angle = starpost_lane_center(2);
+    g.enemies[4].kind = ENEMY_FLYER;
+    g.enemies[4].alive = true;
+    g.enemies[4].dist = 0.50f;
+    g.enemies[4].speed = 0.0f;
+    g.enemies[4].ang_speed = 0.0f;
+    g.enemies[4].angle = starpost_lane_center(6);
+    memset(&in, 0, sizeof in);
+    in.energize = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.energy == t->start - t->energize_cost);
+    CHECK(g.energize_lane == 2);
+    CHECK(!g.enemies[0].alive);
+    CHECK(!g.enemies[1].alive);
+    CHECK(g.enemies[2].alive);
+    CHECK(!g.enemies[3].alive);
+    CHECK(g.enemies[4].alive);
+
+    place(&g, 5, 2, 0.90f, 0.0f);
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(!g.enemies[5].alive);
+    CHECK(g.enemies[2].alive);
+
+    g.enemies[6].kind = ENEMY_FLYER;
+    g.enemies[6].alive = true;
+    g.enemies[6].dist = 0.80f;
+    g.enemies[6].speed = 0.0f;
+    g.enemies[6].angle = starpost_lane_center(2) - 0.50f;
+    g.enemies[6].ang_speed = 0.50f / STARPOST_DT;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(!g.enemies[6].alive);
+    CHECK(g.enemies[4].alive);
+
+    g.energize_timer = STARPOST_DT * 0.5f;
+    place(&g, 7, 2, 0.50f, 0.0f);
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.energize_timer == 0.0f);
+    CHECK(g.enemies[7].alive);
+
+    for (seed = 1; seed < 400 && !found; seed++) {
+        GameState s;
+        InputFrame idle;
+        int i;
+        game_init(&s, seed);
+        s.spawn_timer = 0.0f;
+        s.energize_timer = t->energize_time;
+        s.energize_lane = 3;
+        s.player.cooldown = 10.0f;
+        memset(&idle, 0, sizeof idle);
+        game_update(&s, &idle, 0.001f);
+        for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+            if (s.enemies[i].kind == ENEMY_WALKER && s.enemies[i].lane == 3 &&
+                s.enemies[i].dist > 0.9f) {
+                CHECK(!s.enemies[i].alive);
+                found = 1;
+            }
+        }
+    }
+    CHECK(found);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    place(&g, 0, 1, 0.80f, 0.40f);
+    g.enemies[1].kind = ENEMY_FLYER;
+    g.enemies[1].alive = true;
+    g.enemies[1].lane = 3;
+    g.enemies[1].dist = 0.80f;
+    g.enemies[1].speed = 0.40f;
+    g.enemies[1].angle = starpost_lane_center(3);
+    g.enemies[1].ang_speed = 1.0f;
+    memset(&in, 0, sizeof in);
+    in.slow = true;
+    game_update(&g, &in, 0.50f);
+    CHECK(g.energy == t->start - t->slow_cost);
+    CHECK(g.slow_timer > 0.0f);
+    walker_dist = g.enemies[0].dist;
+    flyer_dist = g.enemies[1].dist;
+    CHECK(walker_dist == 0.80f - 0.40f * t->slow_factor * 0.50f);
+    CHECK(flyer_dist == 0.80f - 0.40f * 0.50f);
+
+    g.slow_timer = 0.10f;
+    g.enemies[0].dist = 0.80f;
+    g.enemies[0].alive = true;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, 0.10f);
+    CHECK(g.slow_timer == 0.0f);
+    CHECK(g.enemies[0].dist == 0.80f - 0.40f * 0.10f);
+
+    g.energy = t->slow_cost - 1;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, STARPOST_DT);
+    in.slow = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.slow_timer == 0.0f);
+    CHECK(g.deny_flash == t->deny_time);
 }
 
 static void test_frame_step_cap(void)
@@ -712,6 +888,7 @@ int main(void)
     test_superzap_charges();
     test_held_fire_interval();
     test_wave_gauge();
+    test_energy_abilities();
     test_frame_step_cap();
     if (fails) {
         fprintf(stderr, "%d/%d checks failed\n", fails, checks);

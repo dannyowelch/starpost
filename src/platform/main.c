@@ -18,7 +18,10 @@ static void usage(void)
             "                 [--flyer-screenshot PATH] [--zap-screenshot PATH]\n"
             "  Left/Right or A/D  rotate one lane\n"
             "  Space or J         fire\n"
-            "  Z or Shift         superzap\n"
+            "  Z or Shift         superzap (20 energy)\n"
+            "  X                  spread shot (1 energy)\n"
+            "  Q                  energize the aimed lane (5 energy)\n"
+            "  E                  slow walkers (10 energy)\n"
             "  M                  mute\n"
             "  - / =              volume\n"
             "  F2                 toggle bloom\n"
@@ -37,7 +40,8 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
                       const char **nobloom, const char **burst, const char **flyer,
                       const char **zapshot, double *soak, const char **title_shot,
                       const char **pause_shot, const char **initials_shot,
-                      const char **scores_shot)
+                      const char **scores_shot, const char **spread_shot,
+                      const char **energize_shot, const char **slow_shot)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -70,6 +74,12 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
             *initials_shot = argv[++i];
         } else if (strcmp(argv[i], "--scores-screenshot") == 0 && i + 1 < argc) {
             *scores_shot = argv[++i];
+        } else if (strcmp(argv[i], "--spread-screenshot") == 0 && i + 1 < argc) {
+            *spread_shot = argv[++i];
+        } else if (strcmp(argv[i], "--energize-screenshot") == 0 && i + 1 < argc) {
+            *energize_shot = argv[++i];
+        } else if (strcmp(argv[i], "--slow-screenshot") == 0 && i + 1 < argc) {
+            *slow_shot = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage();
             return 1;
@@ -589,13 +599,14 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
                         return 1;
                     flyer_saved = 1;
                     fprintf(stderr,
-                            "flyer screenshot %s tick %d wave %d dist %.2f lane %u zaps %u\n",
-                            flyer, tick, game.cfg.wave, e->dist, e->lane, game.player.zaps);
+                            "flyer screenshot %s tick %d wave %d dist %.2f lane %u energy %d\n",
+                            flyer, tick, game.cfg.wave, e->dist, e->lane, game.energy);
                     break;
                 }
             }
         }
-        if (flyer_saved && zapshot && !zap_sent && game.player.zaps > 0 && alive_count(&game) > 0) {
+        if (flyer_saved && zapshot && !zap_sent &&
+            game.energy >= energy_tune()->zap_cost && alive_count(&game) > 0) {
             arm_zap = 1;
             zap_sent = 1;
         }
@@ -706,6 +717,76 @@ static int run_meta_shots(SDL_Window *window, const char *title, const char *pau
     return 0;
 }
 
+static int save_game_view(SDL_Window *window, GameState *game, const char *path)
+{
+    int w;
+    int h;
+    if (window_pixels(window, &w, &h) != 0)
+        return 1;
+    render_draw(game, w, h, 0.016f);
+    SDL_GL_SwapWindow(window);
+    if (render_screenshot(path, w, h) != 0)
+        return 1;
+    fprintf(stderr, "screenshot %s (%dx%d) energy %d\n", path, w, h, game->energy);
+    return 0;
+}
+
+static void place_walker(GameState *g, int slot, int lane, float dist)
+{
+    Enemy *e = &g->enemies[slot];
+    memset(e, 0, sizeof *e);
+    e->kind = ENEMY_WALKER;
+    e->alive = true;
+    e->lane = (uint8_t)lane;
+    e->dist = dist;
+    e->speed = 0.0f;
+}
+
+static int run_ability_shots(SDL_Window *window, const char *spread, const char *energize,
+                             const char *slow)
+{
+    GameState game;
+    InputFrame in;
+    if (spread) {
+        game_init(&game, 1);
+        game.spawn_timer = 1000.0f;
+        game.player.lane = 0;
+        place_walker(&game, 0, 7, 0.55f);
+        place_walker(&game, 1, 0, 0.48f);
+        place_walker(&game, 2, 1, 0.62f);
+        place_walker(&game, 3, 3, 0.40f);
+        memset(&in, 0, sizeof in);
+        in.spread = true;
+        game_update(&game, &in, STARPOST_DT);
+        if (save_game_view(window, &game, spread) != 0)
+            return 1;
+    }
+    if (energize) {
+        game_init(&game, 2);
+        game.spawn_timer = 1000.0f;
+        game.player.lane = 2;
+        place_walker(&game, 0, 2, 0.50f);
+        place_walker(&game, 1, 5, 0.45f);
+        memset(&in, 0, sizeof in);
+        in.energize = true;
+        game_update(&game, &in, STARPOST_DT);
+        if (save_game_view(window, &game, energize) != 0)
+            return 1;
+    }
+    if (slow) {
+        game_init(&game, 3);
+        game.spawn_timer = 1000.0f;
+        place_walker(&game, 0, 1, 0.70f);
+        place_walker(&game, 1, 4, 0.42f);
+        place_walker(&game, 2, 6, 0.58f);
+        game.slow_timer = energy_tune()->slow_time;
+        game.energy = energy_tune()->start - energy_tune()->slow_cost;
+        if (save_game_view(window, &game, slow) != 0)
+            return 1;
+    }
+    return 0;
+}
+
 static int run_interactive(SDL_Window *window, double soak_sec)
 {
     Session session;
@@ -749,6 +830,9 @@ static int run_interactive(SDL_Window *window, double soak_sec)
         sin.play.fire = keys[SDL_SCANCODE_SPACE] || keys[SDL_SCANCODE_J];
         sin.play.zap = keys[SDL_SCANCODE_Z] || keys[SDL_SCANCODE_LSHIFT] ||
                        keys[SDL_SCANCODE_RSHIFT];
+        sin.play.spread = keys[SDL_SCANCODE_X];
+        sin.play.energize = keys[SDL_SCANCODE_Q];
+        sin.play.slow = keys[SDL_SCANCODE_E];
         sin.up = keys[SDL_SCANCODE_UP] || keys[SDL_SCANCODE_W];
         sin.down = keys[SDL_SCANCODE_DOWN] || keys[SDL_SCANCODE_S];
         sin.accept = keys[SDL_SCANCODE_RETURN] || keys[SDL_SCANCODE_KP_ENTER] ||
@@ -767,6 +851,9 @@ static int run_interactive(SDL_Window *window, double soak_sec)
             axes.dpad_right = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT);
             axes.a = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH);
             axes.b = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_EAST);
+            axes.x = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST);
+            axes.lb = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER);
+            axes.rb = SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER);
             axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER);
             axes.rt = axis > 0 ? axis / 32767.0f : 0.0f;
             axis = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER);
@@ -840,19 +927,25 @@ int main(int argc, char **argv)
     const char *pause_shot = NULL;
     const char *initials_shot = NULL;
     const char *scores_shot = NULL;
+    const char *spread_shot = NULL;
+    const char *energize_shot = NULL;
+    const char *slow_shot = NULL;
     int parsed;
     int scripted;
     int meta;
+    int ability;
     double soak = 0.0;
     SDL_Window *window;
     SDL_GLContext gl;
     int rc;
 
     parsed = parse_args(argc, argv, &frames, &shot, &nobloom, &burst, &flyer, &zapshot, &soak,
-                        &title_shot, &pause_shot, &initials_shot, &scores_shot);
+                        &title_shot, &pause_shot, &initials_shot, &scores_shot, &spread_shot,
+                        &energize_shot, &slow_shot);
     if (parsed != 0)
         return parsed < 0 ? 1 : 0;
     meta = title_shot || pause_shot || initials_shot || scores_shot;
+    ability = spread_shot || energize_shot || slow_shot;
     scripted = soak <= 0.0 && (frames > 0 || shot != NULL || nobloom != NULL || burst != NULL ||
                                flyer != NULL || zapshot != NULL);
     if ((shot || nobloom || burst || flyer || zapshot) && frames <= 0)
@@ -918,9 +1011,11 @@ int main(int argc, char **argv)
     rc = 0;
     if (meta)
         rc = run_meta_shots(window, title_shot, pause_shot, initials_shot, scores_shot);
+    if (rc == 0 && ability)
+        rc = run_ability_shots(window, spread_shot, energize_shot, slow_shot);
     if (rc == 0 && scripted)
         rc = run_scripted(window, frames, shot, nobloom, burst, flyer, zapshot);
-    else if (rc == 0 && !meta)
+    else if (rc == 0 && !meta && !ability)
         rc = run_interactive(window, soak);
     if (pad)
         SDL_CloseGamepad(pad);

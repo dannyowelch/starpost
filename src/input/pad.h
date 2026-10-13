@@ -18,6 +18,9 @@ typedef struct {
     int dpad_right;
     int a;
     int b;
+    int x;
+    int lb;
+    int rb;
     float rt;
     float lt;
     int start;
