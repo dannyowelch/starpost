@@ -29,6 +29,23 @@
 #define STARPOST_MAX_FRAME_SEC 0.25
 #define STARPOST_MAX_SIM_STEPS 8
 
+/* One table for the energy prototype. Danny: start 0, cap 100,
+   spread costs 2. Slow's factor applies to walkers only. */
+typedef struct {
+    int start;
+    int cap;
+    int wave_grant;
+    int zap_cost;
+    int spread_cost;
+    int energize_cost;
+    float energize_time;
+    int slow_cost;
+    float slow_time;
+    float slow_factor;
+    float deny_time;
+    float spread_time;
+} EnergyTune;
+
 typedef enum {
     ENEMY_NONE = 0,
     ENEMY_WALKER = 1,
@@ -54,9 +71,10 @@ typedef struct {
 typedef struct {
     uint8_t lane;
     uint8_t beam_lane;
-    uint8_t zaps;
+    uint8_t spread_lane;
     float cooldown;
     float beam_timer;
+    float spread_timer;
 } Player;
 
 typedef struct {
@@ -64,6 +82,9 @@ typedef struct {
     bool right;
     bool fire;
     bool zap;
+    bool spread;
+    bool energize;
+    bool slow;
     bool confirm;
 } InputFrame;
 
@@ -99,7 +120,11 @@ typedef enum {
     GAME_SND_BASE,
     GAME_SND_ZAP,
     GAME_SND_WAVE,
-    GAME_SND_OVER
+    GAME_SND_OVER,
+    GAME_SND_SPREAD,
+    GAME_SND_ENERGIZE,
+    GAME_SND_SLOW,
+    GAME_SND_DENY
 } GameSnd;
 
 #define GAME_SND_MAX 24
@@ -116,9 +141,17 @@ typedef struct {
     float clear_timer;
     float turn_timer;
     float zap_flash;
+    float deny_flash;
+    float energize_timer;
+    float slow_timer;
+    int energy;
+    int energize_lane;
     bool prev_left;
     bool prev_right;
     bool prev_zap;
+    bool prev_spread;
+    bool prev_energize;
+    bool prev_slow;
     int shield;
     int shield_max;
     int shield_recharge;
@@ -130,6 +163,7 @@ typedef struct {
     uint8_t snd[GAME_SND_MAX];
 } GameState;
 
+const EnergyTune *energy_tune(void);
 WaveConfig wave_config(int wave);
 const DiffTune *diff_tune(Difficulty diff);
 const char *diff_name(Difficulty diff);

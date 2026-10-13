@@ -265,7 +265,7 @@ static void test_events(void)
 
     game_init(&g, 4);
     g.spawn_timer = 1000.0f;
-    g.player.zaps = 1;
+    g.energy = energy_tune()->zap_cost;
     g.enemies[0].alive = true;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].dist = 0.4f;
@@ -278,7 +278,7 @@ static void test_events(void)
 
     game_init(&g, 5);
     g.spawn_timer = 1000.0f;
-    g.player.zaps = 0;
+    g.energy = 0;
     g.enemies[0].alive = true;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].dist = 0.4f;
@@ -304,6 +304,10 @@ int main(void)
     render_one("/opt/cursor/artifacts/sfx-superzap.wav", GAME_SND_ZAP, 0, SYNTH_RATE / 2);
     render_one("/opt/cursor/artifacts/sfx-wave.wav", GAME_SND_WAVE, 0, SYNTH_RATE / 2);
     render_one("/opt/cursor/artifacts/sfx-gameover.wav", GAME_SND_OVER, 0, SYNTH_RATE / 2);
+    render_one("/opt/cursor/artifacts/sfx-spread.wav", GAME_SND_SPREAD, 0, SYNTH_RATE / 4);
+    render_one("/opt/cursor/artifacts/sfx-energize.wav", GAME_SND_ENERGIZE, 0, SYNTH_RATE / 3);
+    render_one("/opt/cursor/artifacts/sfx-slow.wav", GAME_SND_SLOW, 0, SYNTH_RATE / 3);
+    render_one("/opt/cursor/artifacts/sfx-deny.wav", GAME_SND_DENY, 0, SYNTH_RATE / 8);
     if (fails) {
         fprintf(stderr, "%d/%d audio checks failed\n", fails, checks);
         return 1;

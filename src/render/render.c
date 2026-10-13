@@ -336,12 +336,9 @@ static void draw_tracer(int lane)
            0.55f, 1.45f, 1.7f);
 }
 
-static void draw_beam(const GameState *g)
+static void draw_lane_beam(int lane, float age, float half_scale, float r, float gcol, float b)
 {
-    float age, env, flash, half, x0, y0, x1, y1;
-    if (g->player.beam_timer <= 0.0f)
-        return;
-    age = 1.0f - (g->player.beam_timer / STARPOST_BEAM_TIME);
+    float env, flash, half, x0, y0, x1, y1;
     if (age < 0.0f)
         age = 0.0f;
     if (age > 1.0f)
@@ -350,13 +347,28 @@ static void draw_beam(const GameState *g)
     if (env < 0.0f)
         env = 0.0f;
     flash = (age < 0.14f) ? (1.0f - age / 0.14f) : 0.0f;
-    half = 0.010f + 0.055f * env + 0.04f * flash;
-    polar(g->player.beam_lane, 0.08f, &x0, &y0);
-    polar(g->player.beam_lane, 0.98f, &x1, &y1);
-    stroke_raw(x0, y0, x1, y1, half * 1.55f, 0.22f + 0.55f * flash, 0.45f + 0.35f * flash,
-               0.75f + 0.55f * flash);
-    stroke_raw(x0, y0, x1, y1, half * 0.38f, 2.0f + 2.4f * flash, 2.2f + 1.8f * flash,
-               2.6f + 2.0f * flash);
+    half = (0.010f + 0.055f * env + 0.04f * flash) * half_scale;
+    polar(lane, 0.08f, &x0, &y0);
+    polar(lane, 0.98f, &x1, &y1);
+    stroke_raw(x0, y0, x1, y1, half * 1.7f, r * (0.28f + 0.4f * flash), gcol * (0.28f + 0.25f * flash),
+               b * (0.35f + 0.3f * flash));
+    stroke_raw(x0, y0, x1, y1, half * 0.36f, r + flash, gcol + 0.4f * flash, b + 0.5f * flash);
+}
+
+static void draw_beam(const GameState *g)
+{
+    if (g->player.beam_timer > 0.0f) {
+        float age = 1.0f - (g->player.beam_timer / STARPOST_BEAM_TIME);
+        draw_lane_beam(g->player.beam_lane, age, 1.0f, 2.0f, 2.2f, 2.6f);
+    }
+    if (g->player.spread_timer > 0.0f && energy_tune()->spread_time > 0.0f) {
+        float sage = 1.0f - (g->player.spread_timer / energy_tune()->spread_time);
+        int center = g->player.spread_lane;
+        draw_lane_beam((center + STARPOST_LANES - 1) % STARPOST_LANES, sage, 0.72f, 1.7f, 0.35f,
+                       1.9f);
+        draw_lane_beam(center, sage, 0.95f, 1.9f, 0.55f, 2.1f);
+        draw_lane_beam((center + 1) % STARPOST_LANES, sage, 0.72f, 1.7f, 0.35f, 1.9f);
+    }
 }
 
 /* 4x6 grid, up to 6 strokes. A 0,0,0,0 stroke is unused. */
@@ -616,10 +628,13 @@ static void draw_initials(const Session *s)
     float h = 0.16f;
     float adv = text_advance(h);
     float gap = adv * 0.35f;
-    float width = adv * 3.0f + gap * 2.0f;
+    float end_h = 0.07f;
+    float end_w = 3.0f * text_advance(end_h);
+    float width = adv * 3.0f + gap * 2.0f + gap + end_w;
     float x = -width * 0.5f;
     int i;
     char buf[32];
+    int on_end = s->initial_slot >= SCORE_INITIALS;
     reset_batches();
     text_center(0.55f, 0.055f, "ENTER INITIALS", 0.65f, 1.15f, 1.45f);
     snprintf(buf, sizeof buf, "%u", s->pending_score);
@@ -635,6 +650,12 @@ static void draw_initials(const Session *s)
             text_at(x, -0.08f, 0.04f, "-", 1.45f, 1.15f, 0.35f);
         x += adv + gap;
     }
+    if (on_end)
+        text_at(x, 0.08f, end_h, "END", 1.45f, 1.15f, 0.35f);
+    else
+        text_at(x, 0.08f, end_h, "END", 0.35f, 0.55f, 0.70f);
+    if (on_end)
+        text_at(x, -0.04f, 0.04f, "-", 1.45f, 1.15f, 0.35f);
 }
 
 static void draw_pause_menu(const Session *s)
@@ -680,8 +701,12 @@ static void draw_hud(const GameState *g)
     snprintf(buf, sizeof buf, "SCORE %u", g->score);
     width = (float)strlen(buf) * text_advance(h);
     draw_text(0.97f - width, y, h, buf, 0.95f, 0.95f, 1.0f);
-    snprintf(buf, sizeof buf, "ZAP %u", (unsigned)g->player.zaps);
+    snprintf(buf, sizeof buf, "EN %d", g->energy);
     draw_text(-0.97f, 0.79f, 0.042f, buf, 1.45f, 1.15f, 0.30f);
+    if (g->deny_flash > 0.0f && energy_tune()->deny_time > 0.0f) {
+        float k = g->deny_flash / energy_tune()->deny_time;
+        fill_rect(-1.0f, -1.0f, 1.0f, 1.0f, 0.7f * k, 0.08f * k, 0.1f * k);
+    }
     draw_wave_gauge(g);
 
     if (g->state != STATE_WAVE_CLEAR)
@@ -989,11 +1014,27 @@ static void build_scene(const GameState *g)
     hud_batch.count = 0;
     batch = &play_batch;
 
-    ring(0.92f, 0.006f, 0.16f * dim, 0.28f * dim, 0.85f * dim);
+    if (g->slow_timer > 0.0f) {
+        ring(0.92f, 0.006f, 1.05f * dim, 0.38f * dim, 0.08f * dim);
+    } else {
+        ring(0.92f, 0.006f, 0.16f * dim, 0.28f * dim, 0.85f * dim);
+    }
     ring(0.075f, 0.012f, base_r, base_g, base_b);
-    for (int i = 0; i < STARPOST_LANES; i++)
-        spoke(i, 0.09f, 0.92f, 0.007f, 0.22f * dim, 0.38f * dim, 1.05f * dim);
+    for (int i = 0; i < STARPOST_LANES; i++) {
+        if (g->slow_timer > 0.0f)
+            spoke(i, 0.09f, 0.92f, 0.008f, 1.25f * dim, 0.45f * dim, 0.08f * dim);
+        else
+            spoke(i, 0.09f, 0.92f, 0.007f, 0.22f * dim, 0.38f * dim, 1.05f * dim);
+    }
     spoke(g->player.lane, 0.09f, 0.92f, 0.013f, 0.45f, 1.35f, 1.7f);
+    if (g->energize_timer > 0.0f && energy_tune()->energize_time > 0.0f) {
+        float k = g->energize_timer / energy_tune()->energize_time;
+        float pulse = 0.6f + 0.4f * sinf(flicker_time * 16.0f);
+        if (k > 1.0f)
+            k = 1.0f;
+        spoke(g->energize_lane, 0.09f, 0.92f, 0.012f + 0.016f * k, 0.75f * pulse * k,
+              1.55f * pulse, 1.75f * pulse);
+    }
 
     for (int i = 0; i < g->shield_max && i < STARPOST_LANES; i++) {
         float a = 1.5707963f - ((float)i + 0.5f) * (6.2831853f / (float)STARPOST_LANES);

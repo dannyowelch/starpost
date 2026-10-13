@@ -8,6 +8,10 @@
 
 #define SCORE_CAP 10
 #define SCORE_INITIALS 3
+/* Letter columns plus the END column that commits the score. */
+#define INITIALS_COLUMNS (SCORE_INITIALS + 1)
+/* Ignore high-score entry input for this long after game over. */
+#define STARPOST_INITIALS_DELAY 1.0f
 
 typedef enum {
     SCREEN_TITLE = 0,
@@ -61,6 +65,7 @@ typedef struct Session {
     ScoreTable scores;
     char initials[SCORE_INITIALS];
     int initial_slot;
+    float initials_wait;
     uint32_t pending_score;
     uint32_t seed;
     int quit;

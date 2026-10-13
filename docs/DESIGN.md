@@ -1,4 +1,4 @@
-# Starpost Returns — Design Doc (v0.7, 2026-10-13)
+# Starpost Returns — Design Doc (v0.8, 2026-10-13)
 
 Unofficial sequel to Commodore's *Star Post* (VIC-20 1982 / C64 1983). Neon vector look (Tempest-style).
 Linux first (Omarchy/Arch, Wayland/Hyprland). C + SDL3 + OpenGL, no engine.
@@ -18,7 +18,7 @@ Working title is **Starpost Returns**: the C64 silhouette (a base, eight channel
 1. **Fire** is an instant beam, not a travelling shot. A tracer shows the current lane. On fire, the beam rapidly widens, brightens, and flashes. The curve can still be iterated; the current one is drawn in the renderer.
 2. **Movement** is one lane at a time, left/right rotation, as in the original and Tempest. Direct 8-way stick select is out.
 3. **Shield** replaces "8 hits per wave, then reset". The shield persists across waves. A walker that reaches the base drains it. Clearing a wave restores `STARPOST_SHIELD_RECHARGE` points, clamped to `STARPOST_SHIELD_MAX` (both tunable; recharge does not refill the shield). Empty shield is game over.
-4. **Superzap** ships with the flyer. One charge is granted each wave, unused charges carry over up to `STARPOST_ZAP_MAX`, and Z or Shift spends one to clear the screen.
+4. **Superzap** ships with the flyer. As of M7 it spends 20 energy from `EnergyTune` instead of a per-wave charge. Z or Shift, or Y / the left trigger, fires it. B energizes the aimed lane.
 5. **Title** is Starpost Returns, with visual nods to the C64 original amped up by the neon vector look.
 
 ## Core data shapes
@@ -40,7 +40,7 @@ typedef struct {
     float   cooldown;      // seconds until next shot
     float   beam_timer;    // >0 while the pulse beam is drawn (visual only)
     uint8_t beam_lane;     // lane the pulse was fired down
-    uint8_t zaps;          // superzap charges (M4)
+    int energy;            // M7, from EnergyTune
 } Player;
 
 typedef struct {
@@ -77,7 +77,7 @@ typedef struct { SDL_Scancode left, right, fire, zap, pause; } KeyMap;
 
 The playable loop is the walker, the spiralling flyer, the player lane/cooldown/beam/zaps, the shield, waves, score, and `STATE_PLAYING` / `STATE_WAVE_CLEAR` / `STATE_GAME_OVER`. The title screen and pause are still later. There is no `lane_direct` input: rotation is the only way to change lanes.
 
-Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_DRAIN` 1, `STARPOST_FLYER_DRAIN` 3, `STARPOST_SHIELD_RECHARGE` 2). Clearing a wave adds the recharge and clamps at `shield_max`. A walker kill scores 100. A flyer kill scores `STARPOST_SCORE_FLYER` (300). Clearing a wave also adds 500. The clear screen lasts 1.5 s, then the next wave starts and grants one superzap charge, capped at 4. An empty shield is game over and skips the clear. Arrivals do not score. A superzap with no charges does nothing.
+Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_DRAIN` 1, `STARPOST_FLYER_DRAIN` 3, `STARPOST_SHIELD_RECHARGE` 2). Clearing a wave adds the recharge and clamps at `shield_max`. A walker kill scores 100. A flyer kill scores `STARPOST_SCORE_FLYER` (300). Clearing a wave also adds 500. The clear screen lasts 1.5 s, then the next wave starts. Clearing a wave also grants `EnergyTune.wave_grant` energy, clamped at `cap`. An empty shield is game over and skips the clear. Arrivals do not score. A superzap with fewer than `zap_cost` energy plays the deny flash and does nothing. An empty screen does not spend the cost.
 
 ## Core loop
 1. Poll SDL events -> `InputFrame`.
@@ -115,16 +115,16 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - Title menu: Start, Difficulty, High Scores, Quit. Up/Down or the left stick / D-pad move. Enter, Space, or South/A accepts. Esc or East/B is not required on the title; Quit is the menu item. Difficulty opens Beginner / Advanced / Hyper. High Scores shows the top 10 for one difficulty; Left/Right switches difficulty.
 - Keyboard in play: Left/Right or A/D rotate one lane (hold to repeat), Space/J fire, Z or Shift superzap, M mute, `-`/`=` volume, F2 toggles bloom. Esc or P pauses. Esc does not quit from play.
 - Pause: the simulation stops. Resume, or Quit to title. Esc, P, or Start toggles pause. Up/Down and Enter/A use the pause menu.
-- Game over: a score that makes the top 10 for the current difficulty opens 3-letter initials (Up/Down change the letter, Left/Right change the slot, Enter/A or Esc commits). Otherwise the game returns to the title. Score 0 does not enter the table.
-- Gamepad (SDL3, hot-plug): D-pad or left stick left/right steps one lane. The stick uses a deadzone of 0.35 and stays held until it returns inside 0.20, so chatter on the threshold does not retrigger the step. Past the deadzone it is a held direction and the same repeat as the keyboard applies. It does not pick a lane from the stick angle. South/A or the right trigger fires. East/B or the left trigger superzaps. Start pauses during play and accepts initials. Keyboard and pad are OR'd together. One frame drains at most `STARPOST_MAX_PAD_EVENTS` (64) events. A slow frame adds at most `STARPOST_MAX_FRAME_SEC` (0.25 s) to the accumulator and then runs at most `STARPOST_MAX_SIM_STEPS` (8) ticks. The SDL HIDAPI drivers for Switch, 8BitDo, and Xbox pads are left off so an SF30 Pro is read through the kernel evdev node; those drivers write LED and report-mode packets with a blocking hidraw `write()` on the poll thread. `STARPOST_LOG_GAMEPAD=1` prints device identity, duplicate vid/pid, event counts, and any poll over 50 ms.
-- Superzap spends one carried charge to kill every enemy currently on screen, with a full-screen flash and the usual death bursts. Empty-handed, it does nothing. The HUD shows `ZAP` and the charge count.
+- Game over: a score that makes the top 10 for the current difficulty opens 3-letter initials plus an END column. Up/Down change the current letter. Left/Right move the column. Confirm on a letter moves to the next column. Confirm on END saves the score. `STARPOST_INITIALS_DELAY` (1 s) ignores input after game over, and a held button must be released before it counts. Otherwise the game returns to the title. Score 0 does not enter the table.
+- Gamepad (SDL3, hot-plug): D-pad or left stick left/right steps one lane. The stick uses a deadzone of 0.35 and stays held until it returns inside 0.20, so chatter on the threshold does not retrigger the step. Past the deadzone it is a held direction and the same repeat as the keyboard applies. It does not pick a lane from the stick angle. South/A or the right trigger fires. West/X spreads. East/B energizes the aimed lane. North/Y or the left trigger superzaps. The right shoulder slows walkers. The left shoulder is unbound. Start pauses during play. Keyboard and pad are OR'd together. One frame drains at most `STARPOST_MAX_PAD_EVENTS` (64) events. A slow frame adds at most `STARPOST_MAX_FRAME_SEC` (0.25 s) to the accumulator and then runs at most `STARPOST_MAX_SIM_STEPS` (8) ticks. The SDL HIDAPI drivers for Switch, 8BitDo, and Xbox pads are left off so an SF30 Pro is read through the kernel evdev node; those drivers write LED and report-mode packets with a blocking hidraw `write()` on the poll thread. `STARPOST_LOG_GAMEPAD=1` prints device identity, duplicate vid/pid, event counts, and any poll over 50 ms.
+- Superzap spends `zap_cost` energy (20) to kill every enemy currently on screen, with a full-screen flash and the usual death bursts. The HUD shows `EN` and the energy count. Spread, energize, and slow are the other spends. Numbers live in `energy_tune()`.
 
 ## Rendering
 - OpenGL 3.3 core. Each line is two quads: a wider dim halo and a bright core, added into an RGBA16F scene target.
 - Bloom, in order: bright-pass, 5-tap separable Gaussian at quarter resolution, additive composite, then `color / (1 + color)`. F2 turns the bloom add off so the same frame can be compared. Quarter-res is the whole cost control.
 - A walker that vanishes out in a lane spawns eight line fragments. A shield drop shakes the playfield for `FX_SHAKE_TIME` (0.16 s). Both live in `src/fx` and are driven by a frame diff in the renderer, so `game.c` has no effect fields. The HUD does not shake. Restart does not spawn leftover bursts.
 - Palette: near-black blue background; lanes blue; base, tracer, and shield pips cyan pushed a little past 1 so they bloom; walkers magenta; the flyer a flickering yellow chevron; beam white-hot with an early flash; superzap a cyan full-screen add. Game over turns the base red. The clear screen dims the web and draws WAVE / CLEAR plus the score.
-- HUD: wave, score, superzap charges, and a wave gauge, stroked with the in-code vector font. No font files. The gauge is `starpost_wave_gauge`: it starts full and drops once for each walker or flyer that is killed or reaches the base, out of that wave's quota (`enemy_count + flyer_count`). It is empty on the clear screen and full again when the next wave starts. Shield stays on the pips around the base.
+- HUD: wave, score, energy, and a wave gauge, stroked with the in-code vector font. No font files. The gauge is `starpost_wave_gauge`: it starts full and drops once for each walker or flyer that is killed or reaches the base, out of that wave's quota (`enemy_count + flyer_count`). It is empty on the clear screen and full again when the next wave starts. Shield stays on the pips around the base.
 - Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes. Scanlines and vignette are not in this pass.
 
 ## Audio
@@ -151,4 +151,5 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - **M4 Flyer + superzap**: spiralling flyer, lane-window hit rule, heavier base hit, superzap charges (1 per wave, accumulating, capped) with a screen flash.
 - **M5 Audio + gamepad**: procedural SFX on an SDL3 stream, mute and volume, SDL3 gamepad with deadzone and hot-plug. One lane at a time.
 - **M6 Meta**: title screen with a rotating lane web, pause, Beginner/Advanced/Hyper, initials, and a saved top-10 table per difficulty.
+- **M7 Energy**: one `EnergyTune` table. Waves grant energy. Spread, energize, and slow spend it. Superzap spends energy instead of a per-wave charge.
 - Later: power-ups, new enemy types, modes, faster frenetic pacing.
