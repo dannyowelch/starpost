@@ -529,7 +529,18 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
             beam_frames++;
         else
             beam_frames = 0;
-        if ((shot || nobloom) && !saved && beam_frames == 6) {
+        if (shot && !nobloom && !saved && game.state == STATE_PLAYING) {
+            float gauge = starpost_wave_gauge(&game);
+            if (gauge <= 0.65f && gauge >= 0.35f && alive_count(&game) > 0) {
+                if (render_screenshot(shot, w, h) != 0)
+                    return 1;
+                fprintf(stderr,
+                        "screenshot %s (%dx%d) tick %d wave %d gauge %.2f score %u walkers %d\n",
+                        shot, w, h, tick, game.cfg.wave, gauge, game.score, alive_count(&game));
+                saved = 1;
+            }
+        }
+        if (!(shot && !nobloom) && (shot || nobloom) && !saved && beam_frames == 6) {
             if (shot) {
                 if (render_screenshot(shot, w, h) != 0)
                     return 1;
@@ -598,7 +609,10 @@ static int run_scripted(SDL_Window *window, int frames, const char *shot,
                     (double)ran / sec);
     }
     if ((shot || nobloom) && !saved) {
-        fprintf(stderr, "screenshot: pulse beam was not drawn\n");
+        if (shot && !nobloom)
+            fprintf(stderr, "screenshot: mid-wave gauge was not reached\n");
+        else
+            fprintf(stderr, "screenshot: pulse beam was not drawn\n");
         return 1;
     }
     if (burst && !burst_saved) {

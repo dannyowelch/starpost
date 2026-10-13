@@ -119,6 +119,7 @@ static void begin_wave(GameState *g, int wave)
     g->spawned = 0;
     g->flyers_spawned = 0;
     g->killed = 0;
+    g->arrived = 0;
     g->spawn_timer = g->cfg.spawn_interval;
     g->clear_timer = 0.0f;
     g->player.beam_timer = 0.0f;
@@ -136,6 +137,21 @@ void game_init(GameState *g, uint32_t seed)
     g->shield = STARPOST_SHIELD_MAX;
     g->shield_max = STARPOST_SHIELD_MAX;
     begin_wave(g, 1);
+}
+
+float starpost_wave_gauge(const GameState *g)
+{
+    int quota;
+    int left;
+    if (!g)
+        return 0.0f;
+    quota = g->cfg.enemy_count + g->cfg.flyer_count;
+    if (quota < 1)
+        return 0.0f;
+    left = quota - (g->killed + g->arrived);
+    if (left < 0)
+        left = 0;
+    return (float)left / (float)quota;
 }
 
 int game_frame_steps(double *acc, double elapsed)
@@ -415,6 +431,7 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         if (e->dist > 0.0f)
             continue;
         e->alive = false;
+        g->arrived += 1;
         drain = (e->kind == ENEMY_FLYER) ? STARPOST_FLYER_DRAIN : STARPOST_SHIELD_DRAIN;
         g->shield -= drain;
         emit(g, GAME_SND_BASE);

@@ -96,6 +96,7 @@ typedef struct {
     int spawned;
     int flyers_spawned;
     int killed;
+    int arrived;
     float spawn_timer;
     float clear_timer;
     float turn_timer;
@@ -118,6 +119,9 @@ int starpost_lane_from_angle(float angle);
 int starpost_flyer_in_lane(float angle, int lane);
 void game_init(GameState *g, uint32_t seed);
 void game_update(GameState *g, const InputFrame *in, float dt);
+/* Remaining fraction of this wave. 1 before any enemy is resolved, 0 when
+   every walker and flyer has been killed or has reached the base. */
+float starpost_wave_gauge(const GameState *g);
 /* Clamp one wall-clock slice and return how many fixed steps to run. */
 int game_frame_steps(double *acc, double elapsed);
 

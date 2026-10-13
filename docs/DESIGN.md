@@ -113,7 +113,7 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - Bloom, in order: bright-pass, 5-tap separable Gaussian at quarter resolution, additive composite, then `color / (1 + color)`. F2 turns the bloom add off so the same frame can be compared. Quarter-res is the whole cost control.
 - A walker that vanishes out in a lane spawns eight line fragments. A shield drop shakes the playfield for `FX_SHAKE_TIME` (0.16 s). Both live in `src/fx` and are driven by a frame diff in the renderer, so `game.c` has no effect fields. The HUD does not shake. Restart does not spawn leftover bursts.
 - Palette: near-black blue background; lanes blue; base, tracer, and shield pips cyan pushed a little past 1 so they bloom; walkers magenta; the flyer a flickering yellow chevron; beam white-hot with an early flash; superzap a cyan full-screen add. Game over turns the base red. The clear screen dims the web and draws WAVE / CLEAR plus the score.
-- HUD: wave, score, superzap charges, and a shield bar, stroked with the in-code vector font. No font files. The in-world shield pips around the base stay.
+- HUD: wave, score, superzap charges, and a wave gauge, stroked with the in-code vector font. No font files. The gauge is `starpost_wave_gauge`: it starts full and drops once for each walker or flyer that is killed or reaches the base, out of that wave's quota (`enemy_count + flyer_count`). It is empty on the clear screen and full again when the next wave starts. Shield stays on the pips around the base.
 - Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes. Scanlines and vignette are not in this pass.
 
 ## Audio
