@@ -101,6 +101,7 @@ static void test_difficulty_scaling(void)
     CHECK(g.cfg.enemy_count == wave_config(1).enemy_count - 2);
     g.shield = 4;
     g.spawned = g.cfg.enemy_count + g.cfg.flyer_count + g.cfg.splitter_count;
+    memset(g.enemies, 0, sizeof g.enemies);
     g.spawn_timer = 1000.0f;
     game_update(&g, &idle, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
@@ -111,6 +112,7 @@ static void test_difficulty_scaling(void)
     CHECK(g.cfg.flyer_count >= 1);
     g.shield = 4;
     g.spawned = g.cfg.enemy_count + g.cfg.flyer_count + g.cfg.splitter_count;
+    memset(g.enemies, 0, sizeof g.enemies);
     g.spawn_timer = 1000.0f;
     game_update(&g, &idle, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
@@ -305,6 +307,7 @@ static void test_session_flow(void)
     CHECK(s.screen == SCREEN_PLAY);
     CHECK(s.game.difficulty == DIFF_ADVANCED);
     s.game.enemies[0].alive = true;
+    s.game.enemies[0].on_ring = false;
     s.game.enemies[0].kind = ENEMY_WALKER;
     s.game.enemies[0].lane = 1;
     s.game.enemies[0].dist = 0.80f;

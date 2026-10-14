@@ -721,7 +721,7 @@ static void draw_hud(const GameState *g)
 
 static void draw_flyer(const Enemy *e)
 {
-    float rad = 0.09f + e->dist * 0.83f;
+    float rad = 0.09f + (e->on_ring ? 1.0f : e->dist) * 0.83f;
     float c = cosf(e->angle);
     float s = sinf(e->angle);
     float x = c * rad;
@@ -731,6 +731,12 @@ static void draw_flyer(const Enemy *e)
     float inward_y = -s;
     float side = 0.042f;
     float tip = 0.055f;
+    float dim = e->on_ring ? 0.40f : 1.0f;
+    if (e->on_ring) {
+        side *= 0.55f;
+        tip *= 0.55f;
+        flick *= dim;
+    }
     stroke(x + (-s) * side, y + c * side, x + inward_x * tip, y + inward_y * tip, 0.008f,
            1.7f * flick, 1.25f * flick, 0.22f * flick);
     stroke(x - (-s) * side, y - c * side, x + inward_x * tip, y + inward_y * tip, 0.008f,
@@ -741,13 +747,22 @@ static void draw_flyer(const Enemy *e)
 
 static void draw_walker(const Enemy *e)
 {
-    float rad = 0.09f + e->dist * 0.83f;
+    float rad = 0.09f + (e->on_ring ? 1.0f : e->dist) * 0.83f;
     float x, y;
-    polar(e->lane, rad, &x, &y);
-    stroke(x, y + 0.035f, x + 0.035f, y, 0.009f, 1.65f, 0.16f, 0.95f);
-    stroke(x + 0.035f, y, x, y - 0.035f, 0.009f, 1.65f, 0.16f, 0.95f);
-    stroke(x, y - 0.035f, x - 0.035f, y, 0.009f, 1.65f, 0.16f, 0.95f);
-    stroke(x - 0.035f, y, x, y + 0.035f, 0.009f, 1.65f, 0.16f, 0.95f);
+    float s = e->on_ring ? 0.020f : 0.035f;
+    float cr = e->on_ring ? 0.70f : 1.65f;
+    float cg = e->on_ring ? 0.08f : 0.16f;
+    float cb = e->on_ring ? 0.42f : 0.95f;
+    if (e->on_ring) {
+        x = cosf(e->angle) * rad;
+        y = sinf(e->angle) * rad;
+    } else {
+        polar(e->lane, rad, &x, &y);
+    }
+    stroke(x, y + s, x + s, y, 0.009f, cr, cg, cb);
+    stroke(x + s, y, x, y - s, 0.009f, cr, cg, cb);
+    stroke(x, y - s, x - s, y, 0.009f, cr, cg, cb);
+    stroke(x - s, y, x, y + s, 0.009f, cr, cg, cb);
 }
 
 static void draw_hex(float x, float y, float r, float half, float cr, float cg, float cb)
@@ -763,11 +778,18 @@ static void draw_hex(float x, float y, float r, float half, float cr, float cg, 
 
 static void draw_splitter(const Enemy *e)
 {
-    float rad = 0.09f + e->dist * 0.83f;
+    float rad = 0.09f + (e->on_ring ? 1.0f : e->dist) * 0.83f;
     float x, y;
     int small = e->kind == ENEMY_SPLIT;
     float r = small ? 0.024f : 0.052f;
     float half = small ? 0.006f : 0.009f;
+    if (e->on_ring) {
+        r *= 0.55f;
+        x = cosf(e->angle) * rad;
+        y = sinf(e->angle) * rad;
+        draw_hex(x, y, r, half, 0.22f, 0.75f, 0.14f);
+        return;
+    }
     polar(e->lane, rad, &x, &y);
     if (small) {
         draw_hex(x, y, r, half, 0.85f, 1.55f, 0.42f);

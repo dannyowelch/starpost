@@ -21,7 +21,7 @@ static void usage(void)
             "  Z or Shift         superzap (20 energy)\n"
             "  X                  spread shot (2 energy)\n"
             "  Q                  energize the aimed lane (5 energy)\n"
-            "  E                  slow walkers (10 energy)\n"
+            "  E                  slow lane enemies to 30%% speed (10 energy, 5 s)\n"
             "  R                  repair one shield pip (10 energy)\n"
             "  M                  mute\n"
             "  - / =              volume\n"
@@ -488,7 +488,7 @@ static void script_input(const GameState *g, int tick, InputFrame *in, int spare
     }
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         const Enemy *e = &g->enemies[i];
-        if (!e->alive || e->dist >= best)
+        if (!e->alive || e->on_ring || e->dist >= best)
             continue;
         if (spare_flyers && e->kind == ENEMY_FLYER)
             continue;

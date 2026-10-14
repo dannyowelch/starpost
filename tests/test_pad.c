@@ -100,7 +100,8 @@ static void test_deadzone_and_buttons(void)
     p = pad_clear();
     p.y = 1;
     pad_apply(&in, &p);
-    CHECK(in.zap);
+    CHECK(in.slow);
+    CHECK(!in.zap);
     CHECK(!in.energize);
 
     memset(&in, 0, sizeof in);
@@ -121,7 +122,8 @@ static void test_deadzone_and_buttons(void)
     p = pad_clear();
     p.rb = 1;
     pad_apply(&in, &p);
-    CHECK(in.slow);
+    CHECK(in.zap);
+    CHECK(!in.slow);
     CHECK(!in.fire);
 
     memset(&in, 0, sizeof in);
