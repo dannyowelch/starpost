@@ -98,7 +98,7 @@ Walker count, speed, and spawn interval live in `WAVE_TABLE` in `src/game/game.c
 | Knob | Formula | Cap |
 | --- | --- | --- |
 | Count | `5 + i * 3` | 48 |
-| Speed | `0.15 + i * 0.025` | 0.70 |
+| Speed | `0.1275 + i * 0.02125` | 0.70 |
 | Spawn interval | `0.90 - i * 0.04` | minimum 0.22 |
 | Flyers | 0 before wave 2; then `1 + (wave - 2) / 2` | 4 |
 | Splitters | 0 before wave 3; then `1 + (wave - 3) / 3` | 3 |

@@ -22,7 +22,8 @@ static const struct {
     int splitter_start;
 } WAVE_TABLE = {
     5, 3, 48,
-    0.15f, 0.025f, 0.70f,
+    /* About 15% slower than the first table (0.15, 0.025). Cap stays 0.70. */
+    0.15f * 0.85f, 0.025f * 0.85f, 0.70f,
     0.90f, 0.04f, 0.22f,
     2, 1, 2, 4,
     3,

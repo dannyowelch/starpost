@@ -193,7 +193,8 @@ static void test_wave_scaling(void)
     CHECK(wave_config(0).enemy_count == a.enemy_count);
     CHECK(wave_config(-4).spawn_interval == a.spawn_interval);
     CHECK(a.enemy_count >= 1);
-    CHECK(a.enemy_speed > 0.0f);
+    CHECK(a.enemy_speed == 0.15f * 0.85f);
+    CHECK(b.enemy_speed == a.enemy_speed + 0.025f * 0.85f);
     CHECK(a.spawn_interval > 0.0f);
 
     for (int w = 1; w <= 6; w++) {
@@ -211,6 +212,7 @@ static void test_wave_scaling(void)
     CHECK(later.spawn_interval == later2.spawn_interval);
     CHECK(later.spawn_interval > 0.0f);
     CHECK(later.enemy_speed == later2.enemy_speed);
+    CHECK(later.enemy_speed == 0.70f);
     CHECK(later.enemy_speed >= wave_config(8).enemy_speed);
 }
 
