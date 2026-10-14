@@ -212,18 +212,21 @@ static void test_events(void)
     g.enemies[0].lane = g.player.lane;
     g.enemies[0].dist = 0.4f;
     g.enemies[0].speed = 0.0f;
-    game_update(&g, &in, STARPOST_DT);
+    memset(g.shots, 0, sizeof g.shots);
+    g.player.cooldown = 0.0f;
+    game_update(&g, &in, 0.4f / STARPOST_SHOT_SPEED + 0.004f);
     CHECK(heard(&g, GAME_SND_WALKER_KILL));
 
     g.spawn_timer = 1000.0f;
     g.player.cooldown = 0.0f;
+    memset(g.shots, 0, sizeof g.shots);
     g.enemies[1].kind = ENEMY_FLYER;
     g.enemies[1].alive = true;
     g.enemies[1].dist = 0.5f;
     g.enemies[1].speed = 0.0f;
     g.enemies[1].ang_speed = 0.0f;
     g.enemies[1].angle = starpost_lane_center(g.player.lane);
-    game_update(&g, &in, STARPOST_DT);
+    game_update(&g, &in, 0.5f / STARPOST_SHOT_SPEED + 0.004f);
     CHECK(heard(&g, GAME_SND_FLYER_KILL));
 
     g.cfg.enemy_count = 0;
@@ -309,6 +312,8 @@ int main(void)
     render_one("/opt/cursor/artifacts/sfx-slow.wav", GAME_SND_SLOW, 0, SYNTH_RATE / 3);
     render_one("/opt/cursor/artifacts/sfx-deny.wav", GAME_SND_DENY, 0, SYNTH_RATE / 8);
     render_one("/opt/cursor/artifacts/sfx-repair.wav", GAME_SND_REPAIR, 0, SYNTH_RATE / 4);
+    render_one("/opt/cursor/artifacts/sfx-split.wav", GAME_SND_SPLIT, 0, SYNTH_RATE / 4);
+    render_one("/opt/cursor/artifacts/sfx-split-kill.wav", GAME_SND_SPLIT_KILL, 0, SYNTH_RATE / 8);
     if (fails) {
         fprintf(stderr, "%d/%d audio checks failed\n", fails, checks);
         return 1;

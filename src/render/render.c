@@ -341,38 +341,30 @@ static void draw_tracer(const GameState *g)
                1.7f);
 }
 
-static void draw_lane_beam(int lane, float age, float half_scale, float r, float gcol, float b)
+static void draw_shots(const GameState *g)
 {
-    float env, flash, half, x0, y0, x1, y1;
-    if (age < 0.0f)
-        age = 0.0f;
-    if (age > 1.0f)
-        age = 1.0f;
-    env = (age < 0.16f) ? (age / 0.16f) : (1.0f - (age - 0.16f) / 0.84f);
-    if (env < 0.0f)
-        env = 0.0f;
-    flash = (age < 0.14f) ? (1.0f - age / 0.14f) : 0.0f;
-    half = (0.010f + 0.055f * env + 0.04f * flash) * half_scale;
-    polar(lane, 0.08f, &x0, &y0);
-    polar(lane, 0.98f, &x1, &y1);
-    stroke_raw(x0, y0, x1, y1, half * 1.7f, r * (0.28f + 0.4f * flash), gcol * (0.28f + 0.25f * flash),
-               b * (0.35f + 0.3f * flash));
-    stroke_raw(x0, y0, x1, y1, half * 0.36f, r + flash, gcol + 0.4f * flash, b + 0.5f * flash);
-}
-
-static void draw_beam(const GameState *g)
-{
-    if (g->player.beam_timer > 0.0f) {
-        float age = 1.0f - (g->player.beam_timer / STARPOST_BEAM_TIME);
-        draw_lane_beam(g->player.beam_lane, age, 1.0f, 2.0f, 2.2f, 2.6f);
-    }
-    if (g->player.spread_timer > 0.0f && energy_tune()->spread_time > 0.0f) {
-        float sage = 1.0f - (g->player.spread_timer / energy_tune()->spread_time);
-        int center = g->player.spread_lane;
-        draw_lane_beam((center + STARPOST_LANES - 1) % STARPOST_LANES, sage, 0.72f, 1.7f, 0.35f,
-                       1.9f);
-        draw_lane_beam(center, sage, 0.95f, 1.9f, 0.55f, 2.1f);
-        draw_lane_beam((center + 1) % STARPOST_LANES, sage, 0.72f, 1.7f, 0.35f, 1.9f);
+    int i;
+    for (i = 0; i < STARPOST_MAX_SHOTS; i++) {
+        const Shot *s = &g->shots[i];
+        float rad;
+        float x0, y0, x1, y1;
+        float cr, cg, cb;
+        if (!s->alive)
+            continue;
+        rad = 0.09f + s->dist * 0.83f;
+        polar(s->lane, rad, &x0, &y0);
+        polar(s->lane, rad + 0.09f, &x1, &y1);
+        if (s->spread) {
+            cr = 1.9f;
+            cg = 0.55f;
+            cb = 2.1f;
+        } else {
+            cr = 2.0f;
+            cg = 2.2f;
+            cb = 2.6f;
+        }
+        stroke(x0, y0, x1, y1, 0.020f, cr * 0.45f, cg * 0.45f, cb * 0.45f);
+        stroke(x0, y0, x1, y1, 0.008f, cr, cg, cb);
     }
 }
 
@@ -758,6 +750,33 @@ static void draw_walker(const Enemy *e)
     stroke(x - 0.035f, y, x, y + 0.035f, 0.009f, 1.65f, 0.16f, 0.95f);
 }
 
+static void draw_hex(float x, float y, float r, float half, float cr, float cg, float cb)
+{
+    int i;
+    for (i = 0; i < 6; i++) {
+        float a0 = 1.04719755f * (float)i;
+        float a1 = 1.04719755f * (float)(i + 1);
+        stroke(x + cosf(a0) * r, y + sinf(a0) * r, x + cosf(a1) * r, y + sinf(a1) * r, half, cr,
+               cg, cb);
+    }
+}
+
+static void draw_splitter(const Enemy *e)
+{
+    float rad = 0.09f + e->dist * 0.83f;
+    float x, y;
+    int small = e->kind == ENEMY_SPLIT;
+    float r = small ? 0.024f : 0.052f;
+    float half = small ? 0.006f : 0.009f;
+    polar(e->lane, rad, &x, &y);
+    if (small) {
+        draw_hex(x, y, r, half, 0.85f, 1.55f, 0.42f);
+    } else {
+        draw_hex(x, y, r, half, 0.45f, 1.85f, 0.28f);
+        stroke(x - r * 0.7f, y, x + r * 0.7f, y, 0.006f, 0.9f, 1.7f, 0.45f);
+    }
+}
+
 static void walker_center(int lane, float dist, float *x, float *y)
 {
     polar(lane, 0.09f + dist * 0.83f, x, y);
@@ -809,6 +828,9 @@ static void observe(const GameState *g, float dt)
                 x = cosf(snap[i].angle) * rad;
                 y = sinf(snap[i].angle) * rad;
                 fx_burst(&fx, x, y, 1.6f, 1.2f, 0.25f);
+            } else if (snap[i].kind == ENEMY_SPLITTER || snap[i].kind == ENEMY_SPLIT) {
+                walker_center(snap[i].lane, snap[i].dist, &x, &y);
+                fx_burst(&fx, x, y, 0.55f, 1.7f, 0.35f);
             } else {
                 walker_center(snap[i].lane, snap[i].dist, &x, &y);
                 fx_burst(&fx, x, y, 1.55f, 0.2f, 0.95f);
@@ -1032,13 +1054,19 @@ static void build_scene(const GameState *g)
             spoke(i, 0.09f, 0.92f, 0.007f, 0.22f * dim, 0.38f * dim, 1.05f * dim);
     }
     spoke(g->player.lane, 0.09f, 0.92f, 0.013f, 0.45f, 1.35f, 1.7f);
-    if (g->energize_timer > 0.0f && energy_tune()->energize_time > 0.0f) {
-        float k = g->energize_timer / energy_tune()->energize_time;
+    if (energy_tune()->energize_time > 0.0f) {
+        int lane;
         float pulse = 0.6f + 0.4f * sinf(flicker_time * 16.0f);
-        if (k > 1.0f)
-            k = 1.0f;
-        spoke(g->energize_lane, 0.09f, 0.92f, 0.012f + 0.016f * k, 0.75f * pulse * k,
-              1.55f * pulse, 1.75f * pulse);
+        for (lane = 0; lane < STARPOST_LANES; lane++) {
+            float k;
+            if (g->energize_left[lane] <= 0.0f)
+                continue;
+            k = g->energize_left[lane] / energy_tune()->energize_time;
+            if (k > 1.0f)
+                k = 1.0f;
+            spoke(lane, 0.09f, 0.92f, 0.012f + 0.016f * k, 0.75f * pulse * k, 1.55f * pulse,
+                  1.75f * pulse);
+        }
     }
 
     for (int i = 0; i < g->shield_max && i < STARPOST_LANES; i++) {
@@ -1057,12 +1085,14 @@ static void build_scene(const GameState *g)
             stroke(x0, y0, x1, y1, 0.007f, 0.28f, 0.08f, 0.12f);
     }
 
-    draw_beam(g);
+    draw_shots(g);
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         if (!g->enemies[i].alive)
             continue;
         if (g->enemies[i].kind == ENEMY_FLYER)
             draw_flyer(&g->enemies[i]);
+        else if (g->enemies[i].kind == ENEMY_SPLITTER || g->enemies[i].kind == ENEMY_SPLIT)
+            draw_splitter(&g->enemies[i]);
         else
             draw_walker(&g->enemies[i]);
     }

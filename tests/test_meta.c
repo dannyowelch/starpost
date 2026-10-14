@@ -55,6 +55,9 @@ static void test_difficulty_scaling(void)
     CHECK(diff_tune(DIFF_HYPER)->interval_scale == 0.75f);
     CHECK(diff_tune(DIFF_HYPER)->flyer_start == 1);
     CHECK(diff_tune(DIFF_HYPER)->shield_recharge == 0);
+    CHECK(diff_tune(DIFF_BEGINNER)->splitter_start == 5);
+    CHECK(diff_tune(DIFF_ADVANCED)->splitter_start == 3);
+    CHECK(diff_tune(DIFF_HYPER)->splitter_start == 2);
     CHECK(strcmp(diff_name(DIFF_BEGINNER), "BEGINNER") == 0);
     CHECK(strcmp(diff_name(DIFF_HYPER), "HYPER") == 0);
 
@@ -65,12 +68,14 @@ static void test_difficulty_scaling(void)
         CHECK(adv.enemy_speed == base.enemy_speed);
         CHECK(adv.spawn_interval == base.spawn_interval);
         CHECK(adv.flyer_count == base.flyer_count);
+        CHECK(adv.splitter_count == base.splitter_count);
     }
     {
         WaveConfig late = wave_config(100);
         WaveConfig adv = wave_config_diff(100, DIFF_ADVANCED);
         CHECK(adv.enemy_count == late.enemy_count);
         CHECK(adv.flyer_count == late.flyer_count);
+        CHECK(adv.splitter_count == late.splitter_count);
     }
 
     {
@@ -95,7 +100,7 @@ static void test_difficulty_scaling(void)
     CHECK(g.shield_recharge == 0);
     CHECK(g.cfg.enemy_count == wave_config(1).enemy_count - 2);
     g.shield = 4;
-    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count;
+    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count + g.cfg.splitter_count;
     g.spawn_timer = 1000.0f;
     game_update(&g, &idle, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
@@ -105,7 +110,7 @@ static void test_difficulty_scaling(void)
     CHECK(g.shield_recharge == 0);
     CHECK(g.cfg.flyer_count >= 1);
     g.shield = 4;
-    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count;
+    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count + g.cfg.splitter_count;
     g.spawn_timer = 1000.0f;
     game_update(&g, &idle, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
@@ -453,6 +458,15 @@ static int count_snd(const GameState *g, GameSnd id)
     return n;
 }
 
+static int shots_alive(const GameState *g)
+{
+    int n = 0;
+    int i;
+    for (i = 0; i < STARPOST_MAX_SHOTS; i++)
+        n += g->shots[i].alive ? 1 : 0;
+    return n;
+}
+
 static void test_confirm_does_not_fire(void)
 {
     Session s;
@@ -474,7 +488,7 @@ static void test_confirm_does_not_fire(void)
         session_update(&s, &in, STARPOST_DT);
     CHECK(s.screen == SCREEN_PLAY);
     CHECK(s.game.energy == energy);
-    CHECK(s.game.player.beam_timer == 0.0f);
+    CHECK(shots_alive(&s.game) == 0);
     CHECK(s.game.player.cooldown == 0.0f);
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 0);
 
@@ -482,12 +496,12 @@ static void test_confirm_does_not_fire(void)
     session_update(&s, &in, STARPOST_DT);
     CHECK(!s.await_fire_release);
     CHECK(s.game.energy == energy);
-    CHECK(s.game.player.beam_timer == 0.0f);
+    CHECK(shots_alive(&s.game) == 0);
 
     in.play.fire = true;
     session_update(&s, &in, STARPOST_DT);
     CHECK(s.game.energy == energy - energy_tune()->shot_cost);
-    CHECK(s.game.player.beam_timer > 0.0f);
+    CHECK(shots_alive(&s.game) == 1);
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
 
     energy = s.game.energy;
@@ -503,14 +517,21 @@ static void test_confirm_does_not_fire(void)
     session_update(&s, &in, STARPOST_DT);
     CHECK(s.screen == SCREEN_PLAY);
     CHECK(s.await_fire_release);
-    session_update(&s, &in, STARPOST_DT);
-    CHECK(s.game.energy == energy);
-    CHECK(s.game.player.beam_timer == 0.0f);
+    {
+        int flying = shots_alive(&s.game);
+        session_update(&s, &in, STARPOST_DT);
+        CHECK(s.game.energy == energy);
+        CHECK(shots_alive(&s.game) == flying);
+    }
     in = none();
     session_update(&s, &in, STARPOST_DT);
-    in.play.fire = true;
-    session_update(&s, &in, STARPOST_DT);
-    CHECK(s.game.energy == energy - energy_tune()->shot_cost);
+    {
+        int flying = shots_alive(&s.game);
+        in.play.fire = true;
+        session_update(&s, &in, STARPOST_DT);
+        CHECK(s.game.energy == energy - energy_tune()->shot_cost);
+        CHECK(shots_alive(&s.game) == flying + 1);
+    }
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
 }
 
