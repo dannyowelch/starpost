@@ -91,7 +91,8 @@ int scores_save(const ScoreTable *t, const char *path);
 int scores_default_path(char *buf, int cap);
 
 void session_init(Session *s, uint32_t seed);
-/* Returns 1 when this call stepped the simulation. Pause and menus do not. */
+/* Returns 1 when this call stepped the play simulation. The title demo steps
+   too, but it stays silent and still returns 0. */
 int session_update(Session *s, const SessionInput *in, float dt);
 
 #endif

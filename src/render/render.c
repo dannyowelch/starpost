@@ -62,6 +62,7 @@ static struct {
     float angle;
 } snap[STARPOST_MAX_ENEMIES];
 static float flicker_time;
+static int title_snap_ready;
 static Vert play_verts[8192];
 static Vert hud_verts[8192];
 static Batch play_batch;
@@ -530,39 +531,6 @@ static void menu_line(int index, int selected, float y, const char *label)
         text_center(y, 0.055f, label, 0.28f, 0.48f, 0.62f);
 }
 
-static void attract_web(float time)
-{
-    const float span = 6.2831853f / (float)STARPOST_LANES;
-    float rot = time * 0.35f;
-    int i;
-    batch = &play_batch;
-    for (i = 0; i < STARPOST_LANES; i++) {
-        float a0 = rot + 1.5707963f - (float)i * span;
-        float a1 = a0 - span;
-        float x0 = cosf(a0) * 0.36f;
-        float y0 = sinf(a0) * 0.36f;
-        float x1 = cosf(a1) * 0.36f;
-        float y1 = sinf(a1) * 0.36f;
-        float ix = cosf(a0) * 0.06f;
-        float iy = sinf(a0) * 0.06f;
-        stroke(ix, iy, x0, y0, 0.004f, 0.22f, 0.42f, 1.10f);
-        stroke(x0, y0, x1, y1, 0.004f, 0.18f, 0.36f, 0.95f);
-    }
-    for (i = 0; i < 3; i++) {
-        float phase = fmodf(time * 0.12f + (float)i * 0.33f, 1.0f);
-        float dist = 1.0f - phase;
-        float rad = 0.07f + dist * 0.29f;
-        float a = rot + 1.5707963f - (float)(i * 3) * span;
-        float x = cosf(a) * rad;
-        float y = sinf(a) * rad;
-        float s = 0.020f;
-        stroke(x, y + s, x + s, y, 0.006f, 1.55f, 0.18f, 0.95f);
-        stroke(x + s, y, x, y - s, 0.006f, 1.55f, 0.18f, 0.95f);
-        stroke(x, y - s, x - s, y, 0.006f, 1.55f, 0.18f, 0.95f);
-        stroke(x - s, y, x, y + s, 0.006f, 1.55f, 0.18f, 0.95f);
-    }
-}
-
 static void reset_batches(void)
 {
     play_batch.verts = play_verts;
@@ -573,17 +541,35 @@ static void reset_batches(void)
     hud_batch.count = 0;
 }
 
-static void draw_title(const Session *s)
+static void observe(const GameState *g, float dt);
+static void build_scene(const GameState *g);
+
+static void scale_play(float scale, float oy)
+{
+    int i;
+    for (i = 0; i < play_batch.count; i++) {
+        play_verts[i].x *= scale;
+        play_verts[i].y = play_verts[i].y * scale + oy;
+    }
+}
+
+static void draw_title(const Session *s, float dt)
 {
     static const char *labels[TITLE_COUNT] = {"START", "DIFFICULTY", "HIGH SCORES", "QUIT"};
     int i;
-    reset_batches();
-    attract_web(s->attract);
+    if (!title_snap_ready)
+        snap_valid = 0;
+    title_snap_ready = 1;
+    observe(&s->game, dt);
+    build_scene(&s->game);
+    /* The playfield is the full web. Shrink it so the title and menu stay clear. */
+    scale_play(0.40f, 0.02f);
+    hud_batch.count = 0;
     text_center(0.78f, 0.095f, "STARPOST", 0.65f, 1.25f, 1.55f);
     text_center(0.64f, 0.048f, "RETURNS", 1.35f, 0.85f, 0.35f);
     text_center(0.50f, 0.032f, diff_name(s->difficulty), 0.45f, 0.85f, 1.05f);
     for (i = 0; i < TITLE_COUNT; i++)
-        menu_line(i, s->title_item, -0.38f - (float)i * 0.11f, labels[i]);
+        menu_line(i, s->title_item, -0.52f - (float)i * 0.108f, labels[i]);
 }
 
 static void draw_difficulty(const Session *s)
@@ -1151,6 +1137,8 @@ void render_session(const struct Session *session, int width, int height, float 
     const Session *s = session;
     if (!s)
         return;
+    if (s->screen != SCREEN_TITLE)
+        title_snap_ready = 0;
     if (s->screen == SCREEN_PLAY) {
         render_draw(&s->game, width, height, dt);
         return;
@@ -1164,7 +1152,7 @@ void render_session(const struct Session *session, int width, int height, float 
         return;
     }
     if (s->screen == SCREEN_TITLE)
-        draw_title(s);
+        draw_title(s, dt);
     else if (s->screen == SCREEN_DIFFICULTY)
         draw_difficulty(s);
     else if (s->screen == SCREEN_SCORES)

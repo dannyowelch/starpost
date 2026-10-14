@@ -700,7 +700,30 @@ static int run_meta_shots(SDL_Window *window, const char *title, const char *pau
     Session session;
     if (title) {
         session_init(&session, 1);
-        session.attract = 2.4f;
+        {
+            SessionInput idle;
+            int step;
+            memset(&idle, 0, sizeof idle);
+            for (step = 0; step < 2000; step++) {
+                int alive = 0;
+                int ring = 0;
+                int shots = 0;
+                int n;
+                session_update(&session, &idle, STARPOST_DT);
+                if (step < 180)
+                    continue;
+                for (n = 0; n < STARPOST_MAX_ENEMIES; n++) {
+                    if (!session.game.enemies[n].alive)
+                        continue;
+                    alive++;
+                    ring += session.game.enemies[n].on_ring ? 1 : 0;
+                }
+                for (n = 0; n < STARPOST_MAX_SHOTS; n++)
+                    shots += session.game.shots[n].alive ? 1 : 0;
+                if (alive - ring >= 2 && shots >= 1)
+                    break;
+            }
+        }
         if (save_view(window, &session, title) != 0)
             return 1;
     }

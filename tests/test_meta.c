@@ -348,7 +348,8 @@ static void test_session_flow(void)
     in.accept = true;
     session_update(&s, &in, 0.30f);
     CHECK(s.screen == SCREEN_TITLE);
-    CHECK(s.game.enemies[0].dist == dist);
+    CHECK(s.game.state == STATE_PLAYING);
+    CHECK(s.game.spawned == 0);
 
     session_init(&s, 9);
     in = none();
@@ -538,12 +539,33 @@ static void test_confirm_does_not_fire(void)
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
 }
 
+static void test_title_demo_leaves_scores(void)
+{
+    Session s;
+    SessionInput in;
+    int i;
+    session_init(&s, 4);
+    scores_insert(&s.scores, DIFF_ADVANCED, "DAN", 100);
+    s.scores_dirty = 0;
+    in = none();
+    for (i = 0; i < 400; i++) {
+        CHECK(session_update(&s, &in, STARPOST_DT) == 0);
+        CHECK(s.screen == SCREEN_TITLE);
+        CHECK(s.quit == 0);
+        CHECK(s.scores_dirty == 0);
+        CHECK(s.scores.count[DIFF_ADVANCED] == 1);
+        CHECK(s.scores.rows[DIFF_ADVANCED][0].score == 100);
+        CHECK(s.game.state != STATE_GAME_OVER);
+    }
+}
+
 int main(void)
 {
     test_difficulty_scaling();
     test_scores_table();
     test_scores_file();
     test_session_flow();
+    test_title_demo_leaves_scores();
     test_confirm_does_not_fire();
     if (fails) {
         fprintf(stderr, "%d/%d meta checks failed\n", fails, checks);
