@@ -19,12 +19,17 @@ static const struct {
     int flyer_base;
     int flyer_every;
     int flyer_max;
+    int splitter_start;
 } WAVE_TABLE = {
     5, 3, 48,
     0.15f, 0.025f, 0.70f,
     0.90f, 0.04f, 0.22f,
     2, 1, 2, 4,
+    3,
 };
+
+static int splitter_count_for(int wave, int start);
+static int clamp_splitters(int walkers, int flyers, int splits);
 
 static uint32_t rng_next(uint32_t *s)
 {
@@ -67,6 +72,8 @@ WaveConfig wave_config(int wave)
     }
     if (c.enemy_count + c.flyer_count > STARPOST_MAX_ENEMIES)
         c.flyer_count = STARPOST_MAX_ENEMIES - c.enemy_count;
+    c.splitter_count = splitter_count_for(wave, WAVE_TABLE.splitter_start);
+    c.splitter_count = clamp_splitters(c.enemy_count, c.flyer_count, c.splitter_count);
     return c;
 }
 
@@ -90,7 +97,9 @@ const EnergyTune *energy_tune(void)
         5.0f, /* slow_time */
         0.5f, /* slow_factor, walkers only */
         0.16f, /* deny_time */
-        0.22f  /* spread_time */
+        0.22f, /* spread_time */
+        1,    /* splitter_energy */
+        1     /* split_energy */
     };
     return &tune;
 }
@@ -108,11 +117,11 @@ const DiffTune *diff_tune(Difficulty diff)
 {
     /* Advanced is the base table: scale 1, no count offset, flyers from
        wave 2. Shield no longer recharges on a clear. Beginner is slower,
-       sparser, and later flyers. Hyper is the opposite. */
+       sparser, and later flyers and splitters. Hyper is the opposite. */
     static const DiffTune tunes[DIFF_COUNT] = {
-        {0.75f, -2, 1.35f, 4, 0},
-        {1.00f, 0, 1.00f, 2, 0},
-        {1.35f, 3, 0.75f, 1, 0},
+        {0.75f, -2, 1.35f, 4, 0, 5},
+        {1.00f, 0, 1.00f, 2, 0, 3},
+        {1.35f, 3, 0.75f, 1, 0, 2},
     };
     if (diff < 0 || diff >= DIFF_COUNT)
         diff = DIFF_ADVANCED;
@@ -140,6 +149,34 @@ static int flyer_count_for(int wave, int start)
     return n;
 }
 
+static int splitter_count_for(int wave, int start)
+{
+    int n;
+    if (wave < start)
+        return 0;
+    n = 1 + (wave - start) / 3;
+    if (n > 3)
+        n = 3;
+    if (n < 0)
+        n = 0;
+    return n;
+}
+
+/* A live splitter plus two children needs two slots beyond the parent. */
+static int clamp_splitters(int walkers, int flyers, int splits)
+{
+    int room = STARPOST_MAX_ENEMIES - walkers - flyers;
+    int cap;
+    if (room < 0)
+        room = 0;
+    cap = room / 2;
+    if (splits > cap)
+        splits = cap;
+    if (splits < 0)
+        splits = 0;
+    return splits;
+}
+
 WaveConfig wave_config_diff(int wave, Difficulty diff)
 {
     const DiffTune *t = diff_tune(diff);
@@ -162,6 +199,8 @@ WaveConfig wave_config_diff(int wave, Difficulty diff)
     if (c.enemy_count + flyers > STARPOST_MAX_ENEMIES)
         flyers = STARPOST_MAX_ENEMIES - c.enemy_count;
     c.flyer_count = flyers;
+    c.splitter_count = clamp_splitters(c.enemy_count, c.flyer_count,
+                                       splitter_count_for(c.wave, t->splitter_start));
     return c;
 }
 
@@ -213,8 +252,10 @@ static void begin_wave(GameState *g, int wave)
     g->cfg = wave_config_diff(wave, g->difficulty);
     g->spawned = 0;
     g->flyers_spawned = 0;
+    g->splitters_spawned = 0;
     g->killed = 0;
     g->arrived = 0;
+    g->quota_skip = 0;
     g->spawn_timer = g->cfg.spawn_interval;
     g->clear_timer = 0.0f;
     g->player.beam_timer = 0.0f;
@@ -254,10 +295,10 @@ float starpost_wave_gauge(const GameState *g)
     int left;
     if (!g)
         return 0.0f;
-    quota = g->cfg.enemy_count + g->cfg.flyer_count;
+    quota = g->cfg.enemy_count + g->cfg.flyer_count + g->cfg.splitter_count * 3;
     if (quota < 1)
         return 0.0f;
-    left = quota - (g->killed + g->arrived);
+    left = quota - (g->killed + g->arrived + g->quota_skip);
     if (left < 0)
         left = 0;
     return (float)left / (float)quota;
@@ -327,18 +368,85 @@ static void grant_energy(GameState *g, int amount)
         g->energy = energy_tune()->cap;
 }
 
-static void kill_enemy(GameState *g, Enemy *e)
+static int is_lane_enemy(EnemyKind kind)
+{
+    return kind == ENEMY_WALKER || kind == ENEMY_SPLITTER || kind == ENEMY_SPLIT;
+}
+
+static int shield_drain_for(EnemyKind kind)
+{
+    if (kind == ENEMY_FLYER)
+        return STARPOST_FLYER_DRAIN;
+    if (kind == ENEMY_SPLITTER)
+        return STARPOST_SPLITTER_DRAIN;
+    if (kind == ENEMY_SPLIT)
+        return STARPOST_SPLIT_DRAIN;
+    return STARPOST_SHIELD_DRAIN;
+}
+
+static void spawn_split_child(GameState *g, int lane, float dist);
+
+/* Filled while an attack resolves, then spawned so the same shot cannot
+   kill the pieces it just created. Superzap never queues a split. */
+static struct {
+    int lane;
+    float dist;
+} split_queue[16];
+static int split_queue_n;
+
+static void queue_split(GameState *g, int lane, float dist)
+{
+    if (split_queue_n >= (int)(sizeof split_queue / sizeof split_queue[0])) {
+        g->quota_skip += 2;
+        return;
+    }
+    split_queue[split_queue_n].lane = lane;
+    split_queue[split_queue_n].dist = dist;
+    split_queue_n++;
+}
+
+static void flush_splits(GameState *g)
+{
+    int n = split_queue_n;
+    int i;
+    split_queue_n = 0;
+    for (i = 0; i < n; i++) {
+        spawn_split_child(g, split_queue[i].lane - 1, split_queue[i].dist);
+        spawn_split_child(g, split_queue[i].lane + 1, split_queue[i].dist);
+    }
+}
+
+static void kill_enemy(GameState *g, Enemy *e, int allow_split)
 {
     const EnergyTune *tune;
-    if (!e->alive)
+    EnemyKind kind;
+    int lane;
+    float dist;
+    if (!e || !e->alive)
         return;
+    kind = e->kind;
+    lane = e->lane;
+    dist = e->dist;
     e->alive = false;
     g->killed += 1;
     tune = energy_tune();
-    if (e->kind == ENEMY_FLYER) {
+    if (kind == ENEMY_FLYER) {
         g->score += (uint32_t)STARPOST_SCORE_FLYER;
         grant_energy(g, tune->flyer_energy);
         emit(g, GAME_SND_FLYER_KILL);
+    } else if (kind == ENEMY_SPLITTER) {
+        g->score += (uint32_t)STARPOST_SCORE_SPLITTER;
+        grant_energy(g, tune->splitter_energy);
+        if (allow_split) {
+            emit(g, GAME_SND_SPLIT);
+            queue_split(g, lane, dist);
+        } else {
+            g->quota_skip += 2;
+        }
+    } else if (kind == ENEMY_SPLIT) {
+        g->score += (uint32_t)STARPOST_SCORE_SPLIT;
+        grant_energy(g, tune->split_energy);
+        emit(g, GAME_SND_SPLIT_KILL);
     } else {
         g->score += (uint32_t)STARPOST_SCORE_KILL;
         grant_energy(g, tune->walker_energy);
@@ -354,13 +462,13 @@ static int wrap_lane(int lane)
     return lane;
 }
 
-static int nearest_walker(const GameState *g, int lane)
+static int nearest_lane_enemy(const GameState *g, int lane)
 {
     int best = -1;
     float best_dist = 0.0f;
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         const Enemy *e = &g->enemies[i];
-        if (!e->alive || e->kind != ENEMY_WALKER || (int)e->lane != lane)
+        if (!e->alive || !is_lane_enemy(e->kind) || (int)e->lane != lane)
             continue;
         if (best < 0 || e->dist < best_dist) {
             best = i;
@@ -372,7 +480,7 @@ static int nearest_walker(const GameState *g, int lane)
 
 static void kill_nearest(GameState *g)
 {
-    int best = nearest_walker(g, g->player.lane);
+    int best = nearest_lane_enemy(g, g->player.lane);
     float best_dist = 0.0f;
     int flyer = -1;
     if (best >= 0)
@@ -390,9 +498,10 @@ static void kill_nearest(GameState *g)
         }
     }
     if (flyer >= 0)
-        kill_enemy(g, &g->enemies[flyer]);
+        kill_enemy(g, &g->enemies[flyer], 1);
     else if (best >= 0)
-        kill_enemy(g, &g->enemies[best]);
+        kill_enemy(g, &g->enemies[best], 1);
+    flush_splits(g);
 }
 
 static int spend_energy(GameState *g, int cost)
@@ -423,8 +532,9 @@ static void superzap(GameState *g)
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         if (!g->enemies[i].alive)
             continue;
-        kill_enemy(g, &g->enemies[i]);
+        kill_enemy(g, &g->enemies[i], 0);
     }
+    flush_splits(g);
     g->zap_flash = STARPOST_ZAP_FLASH;
     emit(g, GAME_SND_ZAP);
 }
@@ -443,17 +553,18 @@ static void spread_shot(GameState *g)
     g->player.spread_timer = tune->spread_time;
     emit(g, GAME_SND_SPREAD);
     for (int n = 0; n < 3; n++) {
-        int slot = nearest_walker(g, lanes[n]);
+        int slot = nearest_lane_enemy(g, lanes[n]);
         if (slot >= 0)
-            kill_enemy(g, &g->enemies[slot]);
+            kill_enemy(g, &g->enemies[slot], 1);
         for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
             Enemy *e = &g->enemies[i];
             if (!e->alive || e->kind != ENEMY_FLYER)
                 continue;
             if (starpost_flyer_in_lane(e->angle, lanes[n]))
-                kill_enemy(g, e);
+                kill_enemy(g, e, 1);
         }
     }
+    flush_splits(g);
 }
 
 static void sweep_energize(GameState *g)
@@ -464,12 +575,13 @@ static void sweep_energize(GameState *g)
         Enemy *e = &g->enemies[i];
         if (!e->alive)
             continue;
-        if (e->kind == ENEMY_WALKER && (int)e->lane == g->energize_lane)
-            kill_enemy(g, e);
+        if (is_lane_enemy(e->kind) && (int)e->lane == g->energize_lane)
+            kill_enemy(g, e, 1);
         else if (e->kind == ENEMY_FLYER &&
                  starpost_flyer_in_lane(e->angle, g->energize_lane))
-            kill_enemy(g, e);
+            kill_enemy(g, e, 1);
     }
+    flush_splits(g);
 }
 
 static void energize_lane(GameState *g)
@@ -492,15 +604,41 @@ static void slow_enemies(GameState *g)
     emit(g, GAME_SND_SLOW);
 }
 
+static int free_slot(const GameState *g)
+{
+    int i;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        if (!g->enemies[i].alive)
+            return i;
+    }
+    return -1;
+}
+
+static void spawn_split_child(GameState *g, int lane, float dist)
+{
+    int slot = free_slot(g);
+    Enemy *e;
+    lane = wrap_lane(lane);
+    if (dist < STARPOST_SPLIT_MIN_DIST)
+        dist = STARPOST_SPLIT_MIN_DIST;
+    if (slot < 0) {
+        g->quota_skip += 1;
+        return;
+    }
+    e = &g->enemies[slot];
+    memset(e, 0, sizeof *e);
+    e->kind = ENEMY_SPLIT;
+    e->lane = (uint8_t)lane;
+    e->dist = dist;
+    e->speed = g->cfg.enemy_speed * STARPOST_SPLIT_SPEED_SCALE;
+    e->alive = true;
+    if (g->energize_timer > 0.0f && lane == g->energize_lane)
+        kill_enemy(g, e, 0);
+}
+
 static int spawn_walker(GameState *g)
 {
-    int slot = -1;
-    for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
-        if (!g->enemies[i].alive) {
-            slot = i;
-            break;
-        }
-    }
+    int slot = free_slot(g);
     if (slot < 0)
         return 0;
     Enemy *e = &g->enemies[slot];
@@ -514,16 +652,28 @@ static int spawn_walker(GameState *g)
     return 1;
 }
 
+static int spawn_splitter(GameState *g)
+{
+    int slot = free_slot(g);
+    Enemy *e;
+    if (slot < 0)
+        return 0;
+    e = &g->enemies[slot];
+    e->kind = ENEMY_SPLITTER;
+    e->lane = (uint8_t)(rng_next(&g->rng) % STARPOST_LANES);
+    e->dist = 1.0f;
+    e->speed = g->cfg.enemy_speed * STARPOST_SPLITTER_SPEED_SCALE;
+    e->angle = 0.0f;
+    e->ang_speed = 0.0f;
+    e->alive = true;
+    g->splitters_spawned += 1;
+    return 1;
+}
+
 static int spawn_flyer(GameState *g)
 {
-    int slot = -1;
+    int slot = free_slot(g);
     Enemy *e;
-    for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
-        if (!g->enemies[i].alive) {
-            slot = i;
-            break;
-        }
-    }
     if (slot < 0)
         return 0;
     e = &g->enemies[slot];
@@ -541,10 +691,21 @@ static int spawn_flyer(GameState *g)
 
 static int spawn_next(GameState *g)
 {
-    int walkers = g->spawned - g->flyers_spawned;
+    int walkers = g->spawned - g->flyers_spawned - g->splitters_spawned;
     int flyers_left = g->cfg.flyer_count - g->flyers_spawned;
+    int splits_left = g->cfg.splitter_count - g->splitters_spawned;
     int walkers_left = g->cfg.enemy_count - walkers;
     int flyer = 0;
+    if (splits_left > 0) {
+        int total = g->cfg.enemy_count + g->cfg.flyer_count + g->cfg.splitter_count;
+        int stride = total / g->cfg.splitter_count;
+        if (stride < 1)
+            stride = 1;
+        if ((g->spawned % stride) == 0 && g->splitters_spawned <= g->spawned / stride)
+            return spawn_splitter(g);
+        if (walkers_left <= 0 && flyers_left <= 0)
+            return spawn_splitter(g);
+    }
     if (flyers_left > 0 && walkers_left <= 0) {
         flyer = 1;
     } else if (flyers_left > 0 && walkers_left > 0) {
@@ -556,7 +717,11 @@ static int spawn_next(GameState *g)
     }
     if (flyer)
         return spawn_flyer(g);
-    return spawn_walker(g);
+    if (walkers_left > 0)
+        return spawn_walker(g);
+    if (splits_left > 0)
+        return spawn_splitter(g);
+    return spawn_flyer(g);
 }
 
 static int any_alive(const GameState *g)
@@ -715,14 +880,16 @@ void game_update(GameState *g, const InputFrame *in, float dt)
             e->lane = (uint8_t)starpost_lane_from_angle(e->angle);
         }
         speed = e->speed;
-        if (g->slow_timer > 0.0f && e->kind == ENEMY_WALKER)
+        if (g->slow_timer > 0.0f && is_lane_enemy(e->kind))
             speed *= energy_tune()->slow_factor;
         e->dist -= speed * dt;
         if (e->dist > 0.0f)
             continue;
         e->alive = false;
         g->arrived += 1;
-        drain = (e->kind == ENEMY_FLYER) ? STARPOST_FLYER_DRAIN : STARPOST_SHIELD_DRAIN;
+        if (e->kind == ENEMY_SPLITTER)
+            g->quota_skip += 2;
+        drain = shield_drain_for(e->kind);
         g->shield -= drain;
         emit(g, GAME_SND_BASE);
         if (g->shield <= 0) {
@@ -739,7 +906,7 @@ void game_update(GameState *g, const InputFrame *in, float dt)
 
     g->spawn_timer -= dt;
     while (g->spawn_timer <= 0.0f &&
-           g->spawned < g->cfg.enemy_count + g->cfg.flyer_count) {
+           g->spawned < g->cfg.enemy_count + g->cfg.flyer_count + g->cfg.splitter_count) {
         if (!spawn_next(g))
             break;
         g->spawned += 1;
@@ -747,6 +914,7 @@ void game_update(GameState *g, const InputFrame *in, float dt)
     }
     sweep_energize(g);
 
-    if (g->spawned >= g->cfg.enemy_count + g->cfg.flyer_count && !any_alive(g))
+    if (g->spawned >= g->cfg.enemy_count + g->cfg.flyer_count + g->cfg.splitter_count &&
+        !any_alive(g))
         enter_clear(g);
 }

@@ -309,6 +309,8 @@ int main(void)
     render_one("/opt/cursor/artifacts/sfx-slow.wav", GAME_SND_SLOW, 0, SYNTH_RATE / 3);
     render_one("/opt/cursor/artifacts/sfx-deny.wav", GAME_SND_DENY, 0, SYNTH_RATE / 8);
     render_one("/opt/cursor/artifacts/sfx-repair.wav", GAME_SND_REPAIR, 0, SYNTH_RATE / 4);
+    render_one("/opt/cursor/artifacts/sfx-split.wav", GAME_SND_SPLIT, 0, SYNTH_RATE / 4);
+    render_one("/opt/cursor/artifacts/sfx-split-kill.wav", GAME_SND_SPLIT_KILL, 0, SYNTH_RATE / 8);
     if (fails) {
         fprintf(stderr, "%d/%d audio checks failed\n", fails, checks);
         return 1;

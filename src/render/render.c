@@ -758,6 +758,33 @@ static void draw_walker(const Enemy *e)
     stroke(x - 0.035f, y, x, y + 0.035f, 0.009f, 1.65f, 0.16f, 0.95f);
 }
 
+static void draw_hex(float x, float y, float r, float half, float cr, float cg, float cb)
+{
+    int i;
+    for (i = 0; i < 6; i++) {
+        float a0 = 1.04719755f * (float)i;
+        float a1 = 1.04719755f * (float)(i + 1);
+        stroke(x + cosf(a0) * r, y + sinf(a0) * r, x + cosf(a1) * r, y + sinf(a1) * r, half, cr,
+               cg, cb);
+    }
+}
+
+static void draw_splitter(const Enemy *e)
+{
+    float rad = 0.09f + e->dist * 0.83f;
+    float x, y;
+    int small = e->kind == ENEMY_SPLIT;
+    float r = small ? 0.024f : 0.052f;
+    float half = small ? 0.006f : 0.009f;
+    polar(e->lane, rad, &x, &y);
+    if (small) {
+        draw_hex(x, y, r, half, 0.85f, 1.55f, 0.42f);
+    } else {
+        draw_hex(x, y, r, half, 0.45f, 1.85f, 0.28f);
+        stroke(x - r * 0.7f, y, x + r * 0.7f, y, 0.006f, 0.9f, 1.7f, 0.45f);
+    }
+}
+
 static void walker_center(int lane, float dist, float *x, float *y)
 {
     polar(lane, 0.09f + dist * 0.83f, x, y);
@@ -809,6 +836,9 @@ static void observe(const GameState *g, float dt)
                 x = cosf(snap[i].angle) * rad;
                 y = sinf(snap[i].angle) * rad;
                 fx_burst(&fx, x, y, 1.6f, 1.2f, 0.25f);
+            } else if (snap[i].kind == ENEMY_SPLITTER || snap[i].kind == ENEMY_SPLIT) {
+                walker_center(snap[i].lane, snap[i].dist, &x, &y);
+                fx_burst(&fx, x, y, 0.55f, 1.7f, 0.35f);
             } else {
                 walker_center(snap[i].lane, snap[i].dist, &x, &y);
                 fx_burst(&fx, x, y, 1.55f, 0.2f, 0.95f);
@@ -1063,6 +1093,8 @@ static void build_scene(const GameState *g)
             continue;
         if (g->enemies[i].kind == ENEMY_FLYER)
             draw_flyer(&g->enemies[i]);
+        else if (g->enemies[i].kind == ENEMY_SPLITTER || g->enemies[i].kind == ENEMY_SPLIT)
+            draw_splitter(&g->enemies[i]);
         else
             draw_walker(&g->enemies[i]);
     }

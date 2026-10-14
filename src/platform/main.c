@@ -34,6 +34,8 @@ static void usage(void)
             "  --pause-screenshot PATH\n"
             "  --initials-screenshot PATH\n"
             "  --scores-screenshot PATH\n"
+            "  --splitter-screenshot PATH\n"
+            "  --split-screenshot PATH\n"
             "  STARPOST_LOG_GAMEPAD=1  log pad identity, event counts, slow polls\n");
 }
 
@@ -42,7 +44,8 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
                       const char **zapshot, double *soak, const char **title_shot,
                       const char **pause_shot, const char **initials_shot,
                       const char **scores_shot, const char **spread_shot,
-                      const char **energize_shot, const char **slow_shot)
+                      const char **energize_shot, const char **slow_shot,
+                      const char **splitter_shot, const char **split_shot)
 {
     for (int i = 1; i < argc; i++) {
         if (strcmp(argv[i], "--frames") == 0 && i + 1 < argc) {
@@ -81,6 +84,10 @@ static int parse_args(int argc, char **argv, int *frames, const char **shot,
             *energize_shot = argv[++i];
         } else if (strcmp(argv[i], "--slow-screenshot") == 0 && i + 1 < argc) {
             *slow_shot = argv[++i];
+        } else if (strcmp(argv[i], "--splitter-screenshot") == 0 && i + 1 < argc) {
+            *splitter_shot = argv[++i];
+        } else if (strcmp(argv[i], "--split-screenshot") == 0 && i + 1 < argc) {
+            *split_shot = argv[++i];
         } else if (strcmp(argv[i], "--help") == 0) {
             usage();
             return 1;
@@ -743,6 +750,49 @@ static void place_walker(GameState *g, int slot, int lane, float dist)
     e->speed = 0.0f;
 }
 
+static void place_kind(GameState *g, int slot, EnemyKind kind, int lane, float dist)
+{
+    Enemy *e = &g->enemies[slot];
+    memset(e, 0, sizeof *e);
+    e->kind = kind;
+    e->alive = true;
+    e->lane = (uint8_t)lane;
+    e->dist = dist;
+    e->speed = g->cfg.enemy_speed;
+    if (kind == ENEMY_SPLITTER)
+        e->speed *= STARPOST_SPLITTER_SPEED_SCALE;
+    e->angle = starpost_lane_center(lane);
+}
+
+static int run_splitter_shots(SDL_Window *window, const char *splitter, const char *split)
+{
+    GameState game;
+    InputFrame in;
+    if (splitter) {
+        game_init(&game, 1);
+        game.spawn_timer = 1000.0f;
+        game.player.lane = 0;
+        place_kind(&game, 0, ENEMY_SPLITTER, 0, 0.58f);
+        place_kind(&game, 1, ENEMY_WALKER, 3, 0.72f);
+        place_kind(&game, 2, ENEMY_WALKER, 5, 0.40f);
+        if (save_game_view(window, &game, splitter) != 0)
+            return 1;
+    }
+    if (split) {
+        game_init(&game, 1);
+        game.spawn_timer = 1000.0f;
+        game.player.lane = 0;
+        place_kind(&game, 0, ENEMY_SPLITTER, 0, 0.58f);
+        place_kind(&game, 1, ENEMY_WALKER, 4, 0.46f);
+        memset(&in, 0, sizeof in);
+        in.fire = true;
+        game_update(&game, &in, STARPOST_DT);
+        if (save_game_view(window, &game, split) != 0)
+            return 1;
+    }
+    return 0;
+}
+
 static int run_ability_shots(SDL_Window *window, const char *spread, const char *energize,
                              const char *slow)
 {
@@ -935,10 +985,13 @@ int main(int argc, char **argv)
     const char *spread_shot = NULL;
     const char *energize_shot = NULL;
     const char *slow_shot = NULL;
+    const char *splitter_shot = NULL;
+    const char *split_shot = NULL;
     int parsed;
     int scripted;
     int meta;
     int ability;
+    int splitter_mode;
     double soak = 0.0;
     SDL_Window *window;
     SDL_GLContext gl;
@@ -946,11 +999,12 @@ int main(int argc, char **argv)
 
     parsed = parse_args(argc, argv, &frames, &shot, &nobloom, &burst, &flyer, &zapshot, &soak,
                         &title_shot, &pause_shot, &initials_shot, &scores_shot, &spread_shot,
-                        &energize_shot, &slow_shot);
+                        &energize_shot, &slow_shot, &splitter_shot, &split_shot);
     if (parsed != 0)
         return parsed < 0 ? 1 : 0;
     meta = title_shot || pause_shot || initials_shot || scores_shot;
     ability = spread_shot || energize_shot || slow_shot;
+    splitter_mode = splitter_shot || split_shot;
     scripted = soak <= 0.0 && (frames > 0 || shot != NULL || nobloom != NULL || burst != NULL ||
                                flyer != NULL || zapshot != NULL);
     if ((shot || nobloom || burst || flyer || zapshot) && frames <= 0)
@@ -1018,9 +1072,11 @@ int main(int argc, char **argv)
         rc = run_meta_shots(window, title_shot, pause_shot, initials_shot, scores_shot);
     if (rc == 0 && ability)
         rc = run_ability_shots(window, spread_shot, energize_shot, slow_shot);
+    if (rc == 0 && splitter_mode)
+        rc = run_splitter_shots(window, splitter_shot, split_shot);
     if (rc == 0 && scripted)
         rc = run_scripted(window, frames, shot, nobloom, burst, flyer, zapshot);
-    else if (rc == 0 && !meta && !ability)
+    else if (rc == 0 && !meta && !ability && !splitter_mode)
         rc = run_interactive(window, soak);
     if (pad)
         SDL_CloseGamepad(pad);

@@ -77,22 +77,23 @@ typedef struct { SDL_Scancode left, right, fire, zap, pause; } KeyMap;
 
 The playable loop is the walker, the spiralling flyer, the player lane/cooldown/beam/zaps, the shield, waves, score, and `STATE_PLAYING` / `STATE_WAVE_CLEAR` / `STATE_GAME_OVER`. The title screen and pause are still later. There is no `lane_direct` input: rotation is the only way to change lanes.
 
-Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_DRAIN` 1, `STARPOST_FLYER_DRAIN` 3). Clearing a wave does not restore shield. `repair_cost` (10) buys one pip, clamped at `shield_max`. A walker kill scores 100. A flyer kill scores `STARPOST_SCORE_FLYER` (300). Clearing a wave also adds 500. The clear screen lasts 1.5 s, then the next wave starts. Clearing a wave also grants `EnergyTune.wave_grant` (10) energy, clamped at `cap`. A normal shot costs `shot_cost` (1). Destroying a walker grants `walker_energy` (1) and a flyer grants `flyer_energy` (5), whatever killed them. `free_shot_at_zero` is 0, so an empty pool denies the shot. An empty shield is game over and skips the clear. Arrivals do not score. A superzap with fewer than `zap_cost` energy plays the deny flash and does nothing. An empty screen does not spend the cost.
+Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_DRAIN` 1, `STARPOST_FLYER_DRAIN` 3). Clearing a wave does not restore shield. `repair_cost` (10) buys one pip, clamped at `shield_max`. A walker kill scores 100. A flyer kill scores `STARPOST_SCORE_FLYER` (300). A splitter kill scores 200 and each small unit scores 50. Clearing a wave also adds 500. The clear screen lasts 1.5 s, then the next wave starts. Clearing a wave also grants `EnergyTune.wave_grant` (10) energy, clamped at `cap`. A normal shot costs `shot_cost` (1). Destroying a walker grants `walker_energy` (1), a flyer grants `flyer_energy` (5), a splitter grants `splitter_energy` (1), and each small unit grants `split_energy` (1), whatever killed them. `free_shot_at_zero` is 0, so an empty pool denies the shot. An empty shield is game over and skips the clear. Arrivals do not score. A superzap with fewer than `zap_cost` energy plays the deny flash and does nothing. An empty screen does not spend the cost.
 
 ## Core loop
 1. Poll SDL events -> `InputFrame`.
 2. Fixed timestep 120 Hz: `game_update(GameState*, const InputFrame*, float dt)` (pure, no SDL/GL).
 3. Render the state; vsync when a display is present.
-- Walkers spawn at lane ends from `wave_config` and move inward. Flyers are scheduled with them from wave 2. The wave ends when every enemy in the quota is dead or has arrived.
-- A walker at the base drains 1 shield. A flyer drains 3. Shield at 0 => game over.
+- Walkers spawn at lane ends from `wave_config` and move inward. Flyers are scheduled with them from wave 2. Splitters are scheduled from wave 3. The wave ends when every spawned enemy is dead or has arrived, including the small units a splitter leaves behind.
+- A walker at the base drains 1 shield. A splitter drains 2. Each small unit drains 1. A flyer drains 3. Shield at 0 => game over.
 - Fire: if cooldown is clear, an instant beam runs down the current lane and destroys the **nearest** enemy in the tracer's window (smallest `dist`). Walkers count only in their own lane. A flyer counts only while its angle is inside the hit window. Holding fire (keyboard or gamepad) waits `STARPOST_FIRE_COOLDOWN` (0.32 s) between shots. The pulse is visual (`beam_timer`). A hit adds that enemy's score.
 - Left/right steps one lane and wraps (7 → 0, 0 → 7). Holding the key repeats after a short delay.
+- A splitter is a lane enemy at `enemy_speed * STARPOST_SPLITTER_SPEED_SCALE` (0.62). Killing it in lane N spawns two smaller units in N−1 and N+1, wrapping, at about the splitter's distance. Those units walk inward at `enemy_speed * STARPOST_SPLIT_SPEED_SCALE` (1.25), faster than a walker. A superzap destroys a splitter without spawning them. Energize kills a small unit that appears in the energized lane. Spread still splits; the new units are not cleared by that same shot. Reaching the base does not split. Slow covers splitters and the small units, the same as walkers. Flyers stay at full speed.
 - The flyer spawns on the rim and spirals in: `dist` falls at `enemy_speed * STARPOST_FLYER_SPEED_SCALE` (0.72) and `angle` advances at `STARPOST_FLYER_ANG_SPEED` (1.8 rad/s). Its lane is the nearest sector, `round((π/2 - angle) / (2π/8))` mod 8, the same angles the web is drawn with. Lane 0 is straight up; increasing lane is clockwise. The hit window is `STARPOST_HIT_WINDOW` (0.55) of one sector, centered on the tracer, so the gaps between lane centers are misses. Reaching the base drains 3 shield. It is drawn as a flickering yellow chevron.
 - Wave clear shows a short screen, adds the wave bonus, and does not restore shield, then loads the next `wave_config`. Lane, score, and shield carry over.
 - Shield exhausted => game over. M6 adds the high-score entry. A key restarts the run.
 
 ### Wave table
-All three knobs live in `WAVE_TABLE` in `src/game/game.c`. For wave `n` (1-based), with `i = n - 1`:
+Walker count, speed, and spawn interval live in `WAVE_TABLE` in `src/game/game.c`. For wave `n` (1-based), with `i = n - 1`:
 
 | Knob | Formula | Cap |
 | --- | --- | --- |
@@ -100,6 +101,7 @@ All three knobs live in `WAVE_TABLE` in `src/game/game.c`. For wave `n` (1-based
 | Speed | `0.15 + i * 0.025` | 0.70 |
 | Spawn interval | `0.90 - i * 0.04` | minimum 0.22 |
 | Flyers | 0 before wave 2; then `1 + (wave - 2) / 2` | 4 |
+| Splitters | 0 before wave 3; then `1 + (wave - 3) / 3` | 3 |
 
 Later waves spawn more walkers over a longer window, move them faster, and spawn them more often. Flyers are extra on top of the walker quota, spread through the wave, and the wave does not clear while one is alive. `wave_config` is the base table (Advanced). `wave_config_diff` applies a difficulty tune, then clamps count to 1..48, speed to 1.05, and spawn interval to 0.12..2.
 
@@ -109,6 +111,7 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 | Walker count | −2 | +0 | +3 |
 | Spawn interval | ×1.35 | ×1 | ×0.75 |
 | First flyer wave | 4 | 2 | 1 |
+| First splitter wave | 5 | 3 | 2 |
 | Shield recharge | 0 | 0 | 0 |
 
 ## Controls
@@ -123,12 +126,12 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - OpenGL 3.3 core. Each line is two quads: a wider dim halo and a bright core, added into an RGBA16F scene target.
 - Bloom, in order: bright-pass, 5-tap separable Gaussian at quarter resolution, additive composite, then `color / (1 + color)`. F2 turns the bloom add off so the same frame can be compared. Quarter-res is the whole cost control.
 - A walker that vanishes out in a lane spawns eight line fragments. A shield drop shakes the playfield for `FX_SHAKE_TIME` (0.16 s). Both live in `src/fx` and are driven by a frame diff in the renderer, so `game.c` has no effect fields. The HUD does not shake. Restart does not spawn leftover bursts.
-- Palette: near-black blue background; lanes blue; base, tracer, and shield pips cyan pushed a little past 1 so they bloom; walkers magenta; the flyer a flickering yellow chevron; beam white-hot with an early flash; superzap a cyan full-screen add. Game over turns the base red. The clear screen dims the web and draws WAVE / CLEAR plus the score.
-- HUD: wave, score, energy, and a wave gauge, stroked with the in-code vector font. No font files. The gauge is `starpost_wave_gauge`: it starts full and drops once for each walker or flyer that is killed or reaches the base, out of that wave's quota (`enemy_count + flyer_count`). It is empty on the clear screen and full again when the next wave starts. Shield stays on the pips around the base.
+- Palette: near-black blue background; lanes blue; base, tracer, and shield pips cyan pushed a little past 1 so they bloom; walkers magenta; splitters a larger lime hexagon with a bar through it, and the small units a smaller hexagon in the same green; the flyer a flickering yellow chevron; beam white-hot with an early flash; superzap a cyan full-screen add. Game over turns the base red. The clear screen dims the web and draws WAVE / CLEAR plus the score.
+- HUD: wave, score, energy, and a wave gauge, stroked with the in-code vector font. No font files. The gauge is `starpost_wave_gauge`. Each splitter counts as three from the start (itself and two children), so the bar never rises when a split happens. A zap or a base hit on a splitter resolves those two children without spawning them. The gauge is empty only when every walker, flyer, splitter, and child has been killed or has reached the base, and it is full again on the next wave. Shield stays on the pips around the base.
 - Logical coordinates are centered on the base. The view scales uniformly to the window, including Hyprland resizes. Scanlines and vignette are not in this pass.
 
 ## Audio
-- Procedural synth in `src/audio` (square, saw, sine, noise, exponential envelopes). No sample files. `game_update` clears `GameState.snd` and appends `GameSnd` ids for that tick: lane step, beam fire, walker kill, flyer spawn, flyer kill, base hit, superzap, spread, energize, slow, deny, repair, wave clear, game over. The platform drains the queue into the synth. A flyer that is alive also holds a low warble; it decays out when the last flyer is gone.
+- Procedural synth in `src/audio` (square, saw, sine, noise, exponential envelopes). No sample files. `game_update` clears `GameState.snd` and appends `GameSnd` ids for that tick: lane step, beam fire, walker kill, flyer spawn, flyer kill, base hit, superzap, spread, energize, slow, deny, repair, splitter break, small-unit death, wave clear, game over. The platform drains the queue into the synth. A flyer that is alive also holds a low warble; it decays out when the last flyer is gone.
 - Playback is an SDL3 audio stream, mono float at 44100 Hz, kept about 25 ms ahead. The mix is `tanh` of the sum times a gain in `[0, 1]`, so a full stack stays inside (-1, 1). M mutes. `-` and `=` step the gain by 0.1 and unmute.
 - Any music later must be Danny's or clearly licensed (CC0/CC-BY with credit in CREDITS.md). No ripped C64 audio.
 
@@ -152,4 +155,5 @@ Later waves spawn more walkers over a longer window, move them faster, and spawn
 - **M5 Audio + gamepad**: procedural SFX on an SDL3 stream, mute and volume, SDL3 gamepad with deadzone and hot-plug. One lane at a time.
 - **M6 Meta**: title screen with a rotating lane web, pause, Beginner/Advanced/Hyper, initials, and a saved top-10 table per difficulty.
 - **M7 Energy**: one `EnergyTune` table. Waves grant energy. Spread, energize, and slow spend it. Superzap spends energy instead of a per-wave charge.
-- Later: power-ups, new enemy types, modes, faster frenetic pacing.
+- **M8 Splitter**: a slow lane enemy that breaks into two faster units in the neighboring lanes. The wave gauge reserves those children up front.
+- Later: power-ups, modes, faster frenetic pacing.

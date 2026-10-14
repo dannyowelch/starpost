@@ -127,6 +127,13 @@ void synth_trigger(Synth *s, int game_snd)
         voice_on(s, 4, 660.0f, 480.0f, 0.12f, 0.12f);
         voice_on(s, 1, 1320.0f, 200.0f, 0.06f, 0.08f);
         break;
+    case GAME_SND_SPLIT:
+        voice_on(s, 3, 0.0f, 0.0f, 0.16f, 0.08f);
+        voice_on(s, 1, 520.0f, 1100.0f, 0.12f, 0.11f);
+        break;
+    case GAME_SND_SPLIT_KILL:
+        voice_on(s, 1, 980.0f, -1600.0f, 0.10f, 0.05f);
+        break;
     default:
         break;
     }

@@ -982,6 +982,239 @@ static void test_energy_abilities(void)
     CHECK(g.energy == 40 - t->repair_cost);
 }
 
+static int alive_kind_lane(const GameState *g, EnemyKind kind, int lane)
+{
+    int n = 0;
+    int i;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        const Enemy *e = &g->enemies[i];
+        if (e->alive && e->kind == kind && (int)e->lane == lane)
+            n++;
+    }
+    return n;
+}
+
+static void test_splitter(void)
+{
+    const EnergyTune *t = energy_tune();
+    GameState g;
+    InputFrame in;
+    int energy;
+    int quota;
+    float gauge;
+    float dist;
+    int guard;
+    int found;
+
+    CHECK(t->splitter_energy == 1);
+    CHECK(t->split_energy == 1);
+    CHECK(STARPOST_SPLITTER_SPEED_SCALE < 1.0f);
+    CHECK(STARPOST_SPLIT_SPEED_SCALE > 1.0f);
+    CHECK(STARPOST_SPLITTER_DRAIN == 2);
+    CHECK(STARPOST_SPLIT_DRAIN == 1);
+    CHECK(STARPOST_SCORE_SPLITTER == 200);
+    CHECK(STARPOST_SCORE_SPLIT == 50);
+    CHECK(wave_config(1).splitter_count == 0);
+    CHECK(wave_config(2).splitter_count == 0);
+    CHECK(wave_config(3).splitter_count == 1);
+    CHECK(wave_config(6).splitter_count == 2);
+    CHECK(wave_config(9).splitter_count == 3);
+    CHECK(wave_config(100).splitter_count == 3);
+    CHECK(wave_config_diff(3, DIFF_ADVANCED).splitter_count == wave_config(3).splitter_count);
+    CHECK(wave_config_diff(4, DIFF_BEGINNER).splitter_count == 0);
+    CHECK(wave_config_diff(5, DIFF_BEGINNER).splitter_count >= 1);
+    CHECK(wave_config_diff(1, DIFF_HYPER).splitter_count == 0);
+    CHECK(wave_config_diff(2, DIFF_HYPER).splitter_count >= 1);
+    CHECK(diff_tune(DIFF_BEGINNER)->splitter_start == 5);
+    CHECK(diff_tune(DIFF_ADVANCED)->splitter_start == 3);
+    CHECK(diff_tune(DIFF_HYPER)->splitter_start == 2);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.cfg.enemy_count = 0;
+    g.cfg.flyer_count = 0;
+    g.cfg.splitter_count = 1;
+    quota = 3;
+    CHECK(starpost_wave_gauge(&g) == 1.0f);
+    g.player.lane = 0;
+    place_enemy(&g, 0, ENEMY_SPLITTER, 0, 0.55f);
+    energy = g.energy;
+    gauge = starpost_wave_gauge(&g);
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLITTER, 0) == 0);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 7) == 1);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 1) == 1);
+    CHECK(g.energy == energy - t->shot_cost + t->splitter_energy);
+    CHECK(g.score == (uint32_t)STARPOST_SCORE_SPLITTER);
+    CHECK(count_snd(&g, GAME_SND_SPLIT) == 1);
+    CHECK(count_snd(&g, GAME_SND_SPLIT_KILL) == 0);
+    CHECK(g.quota_skip == 0);
+    CHECK(starpost_wave_gauge(&g) < gauge);
+    CHECK(starpost_wave_gauge(&g) == gauge_after(quota, 1));
+    {
+        int i;
+        for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+            const Enemy *e = &g.enemies[i];
+            if (!e->alive || e->kind != ENEMY_SPLIT)
+                continue;
+            CHECK(e->speed == g.cfg.enemy_speed * STARPOST_SPLIT_SPEED_SCALE);
+            CHECK(e->speed > g.cfg.enemy_speed);
+            CHECK(e->dist < 0.55f);
+            CHECK(e->dist > 0.50f);
+        }
+    }
+
+    place_enemy(&g, 2, ENEMY_SPLITTER, 7, 0.40f);
+    g.player.lane = 7;
+    g.player.cooldown = 0.0f;
+    energy = g.energy;
+    gauge = starpost_wave_gauge(&g);
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 6) == 1);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 0) == 1);
+    CHECK(starpost_wave_gauge(&g) < gauge);
+
+    g.player.lane = 1;
+    g.player.cooldown = 0.0f;
+    energy = g.energy;
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 1) == 0);
+    CHECK(g.energy == energy - t->shot_cost + t->split_energy);
+    CHECK(count_snd(&g, GAME_SND_SPLIT_KILL) == 1);
+    CHECK(g.score == (uint32_t)STARPOST_SCORE_SPLITTER * 2u + (uint32_t)STARPOST_SCORE_SPLIT);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.cfg.enemy_count = 0;
+    g.cfg.flyer_count = 0;
+    g.cfg.splitter_count = 1;
+    g.player.lane = 0;
+    place_enemy(&g, 0, ENEMY_SPLITTER, 0, 0.50f);
+    g.energy = t->zap_cost;
+    memset(&in, 0, sizeof in);
+    in.zap = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(g.state == STATE_PLAYING);
+    CHECK(!g.enemies[0].alive);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 7) == 0);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 1) == 0);
+    CHECK(g.quota_skip == 2);
+    CHECK(g.killed == 1);
+    CHECK(g.energy == t->splitter_energy);
+    CHECK(g.score == (uint32_t)STARPOST_SCORE_SPLITTER);
+    CHECK(count_snd(&g, GAME_SND_SPLIT) == 0);
+    CHECK(starpost_wave_gauge(&g) == 0.0f);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.player.lane = 0;
+    g.energy = 40;
+    memset(&in, 0, sizeof in);
+    in.energize = true;
+    game_update(&g, &in, STARPOST_DT);
+    place_enemy(&g, 0, ENEMY_SPLITTER, 1, 0.50f);
+    g.player.lane = 1;
+    g.player.cooldown = 0.0f;
+    energy = g.energy;
+    memset(&in, 0, sizeof in);
+    in.fire = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLITTER, 1) == 0);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 0) == 0);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 2) == 1);
+    CHECK(g.energy == energy - t->shot_cost + t->splitter_energy + t->split_energy);
+    CHECK(count_snd(&g, GAME_SND_SPLIT) == 1);
+    CHECK(count_snd(&g, GAME_SND_SPLIT_KILL) == 1);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.player.lane = 0;
+    place_enemy(&g, 0, ENEMY_SPLITTER, 0, 0.50f);
+    energy = g.energy;
+    memset(&in, 0, sizeof in);
+    in.spread = true;
+    game_update(&g, &in, STARPOST_DT);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 7) == 1);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 1) == 1);
+    CHECK(g.energy == energy - t->spread_cost + t->splitter_energy);
+    CHECK(count_snd(&g, GAME_SND_SPLIT_KILL) == 0);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    g.cfg.enemy_count = 0;
+    g.cfg.flyer_count = 0;
+    g.cfg.splitter_count = 1;
+    place_enemy(&g, 0, ENEMY_SPLITTER, 3, 0.02f);
+    g.enemies[0].speed = 1.0f;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, 0.05f);
+    CHECK(!g.enemies[0].alive);
+    CHECK(g.shield == STARPOST_SHIELD_MAX - STARPOST_SPLITTER_DRAIN);
+    CHECK(g.arrived == 1);
+    CHECK(g.quota_skip == 2);
+    CHECK(g.killed == 0);
+    CHECK(g.score == 0);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 2) == 0);
+    CHECK(alive_kind_lane(&g, ENEMY_SPLIT, 4) == 0);
+    CHECK(starpost_wave_gauge(&g) == 0.0f);
+
+    place_enemy(&g, 1, ENEMY_SPLIT, 2, 0.02f);
+    g.enemies[1].speed = 1.0f;
+    game_update(&g, &in, 0.05f);
+    CHECK(g.shield == STARPOST_SHIELD_MAX - STARPOST_SPLITTER_DRAIN - STARPOST_SPLIT_DRAIN);
+    CHECK(g.quota_skip == 2);
+    CHECK(g.arrived == 2);
+
+    game_init(&g, 1);
+    g.spawn_timer = 1000.0f;
+    place_enemy(&g, 0, ENEMY_SPLITTER, 1, 0.80f);
+    g.enemies[0].speed = 0.40f;
+    place_enemy(&g, 1, ENEMY_FLYER, 3, 0.80f);
+    g.enemies[1].speed = 0.40f;
+    g.enemies[1].ang_speed = 0.0f;
+    memset(&in, 0, sizeof in);
+    in.slow = true;
+    game_update(&g, &in, 0.50f);
+    CHECK(g.enemies[0].alive);
+    CHECK(g.enemies[0].dist == 0.80f - 0.40f * t->slow_factor * 0.50f);
+    CHECK(g.enemies[1].dist == 0.80f - 0.40f * 0.50f);
+
+    game_init(&g, 1);
+    g.state = STATE_WAVE_CLEAR;
+    g.clear_timer = 0.01f;
+    memset(&in, 0, sizeof in);
+    game_update(&g, &in, 0.05f);
+    g.state = STATE_WAVE_CLEAR;
+    g.clear_timer = 0.01f;
+    game_update(&g, &in, 0.05f);
+    CHECK(g.cfg.wave == 3);
+    CHECK(g.cfg.splitter_count >= 1);
+    found = 0;
+    guard = 0;
+    while (!found && guard++ < 4000) {
+        int i;
+        game_update(&g, &in, g.cfg.spawn_interval);
+        for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+            if (g.enemies[i].alive && g.enemies[i].kind == ENEMY_SPLITTER) {
+                CHECK(g.enemies[i].speed == g.cfg.enemy_speed * STARPOST_SPLITTER_SPEED_SCALE);
+                CHECK(g.enemies[i].speed < g.cfg.enemy_speed);
+                found = 1;
+            }
+        }
+    }
+    CHECK(found == 1);
+
+    dist = starpost_wave_gauge(&g);
+    CHECK(dist <= 1.0f);
+    CHECK(dist >= 0.0f);
+}
+
 static void test_frame_step_cap(void)
 {
     double acc = 0.0;
@@ -1028,6 +1261,7 @@ int main(void)
     test_held_fire_interval();
     test_wave_gauge();
     test_energy_abilities();
+    test_splitter();
     test_frame_step_cap();
     if (fails) {
         fprintf(stderr, "%d/%d checks failed\n", fails, checks);
