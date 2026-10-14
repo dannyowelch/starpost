@@ -257,6 +257,7 @@ void session_init(Session *s, uint32_t seed)
     s->difficulty = DIFF_ADVANCED;
     s->seed = seed;
     s->initials[0] = s->initials[1] = s->initials[2] = 'A';
+    demo_reset(&s->game, seed, DIFF_ADVANCED);
 }
 
 static void latch_initials_input(Session *s, const SessionInput *in)
@@ -284,12 +285,18 @@ static void enter_initials(Session *s)
     s->screen = SCREEN_INITIALS;
 }
 
+static void enter_title(Session *s)
+{
+    s->screen = SCREEN_TITLE;
+    demo_reset(&s->game, s->seed, s->difficulty);
+}
+
 static void finish_game(Session *s)
 {
     if (scores_qualifies(&s->scores, s->difficulty, s->game.score))
         enter_initials(s);
     else
-        s->screen = SCREEN_TITLE;
+        enter_title(s);
 }
 
 int session_update(Session *s, const SessionInput *in, float dt)
@@ -334,6 +341,8 @@ int session_update(Session *s, const SessionInput *in, float dt)
                 s->quit = 1;
             }
         }
+        if (s->screen == SCREEN_TITLE)
+            demo_update(&s->game, dt);
         return 0;
     case SCREEN_DIFFICULTY:
         if (up || left)
@@ -342,9 +351,9 @@ int session_update(Session *s, const SessionInput *in, float dt)
             s->diff_item = (s->diff_item + 1) % DIFF_COUNT;
         if (accept) {
             s->difficulty = (Difficulty)s->diff_item;
-            s->screen = SCREEN_TITLE;
+            enter_title(s);
         } else if (pause) {
-            s->screen = SCREEN_TITLE;
+            enter_title(s);
         }
         return 0;
     case SCREEN_SCORES:
@@ -353,7 +362,7 @@ int session_update(Session *s, const SessionInput *in, float dt)
         if (right)
             s->score_diff = (s->score_diff + 1) % DIFF_COUNT;
         if (accept || pause)
-            s->screen = SCREEN_TITLE;
+            enter_title(s);
         return 0;
     case SCREEN_PLAY:
         if (pause) {
@@ -390,7 +399,7 @@ int session_update(Session *s, const SessionInput *in, float dt)
             if (s->pause_item == PAUSE_RESUME)
                 enter_play(s);
             else
-                s->screen = SCREEN_TITLE;
+                enter_title(s);
         }
         return 0;
     case SCREEN_INITIALS:
@@ -417,7 +426,7 @@ int session_update(Session *s, const SessionInput *in, float dt)
             } else {
                 scores_insert(&s->scores, s->difficulty, s->initials, s->pending_score);
                 s->scores_dirty = 1;
-                s->screen = SCREEN_TITLE;
+                enter_title(s);
             }
         }
         return 0;

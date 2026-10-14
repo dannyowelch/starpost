@@ -198,6 +198,7 @@ typedef struct {
     Difficulty difficulty;
     uint32_t score;
     uint32_t rng;
+    int demo_tick;
     GamePlayState state;
     uint8_t snd_count;
     uint8_t snd[GAME_SND_MAX];
@@ -216,6 +217,9 @@ int starpost_flyer_in_lane(float angle, int lane);
 void game_init(GameState *g, uint32_t seed);
 void game_init_difficulty(GameState *g, uint32_t seed, Difficulty diff);
 void game_update(GameState *g, const InputFrame *in, float dt);
+/* Silent title-screen game. It keeps playing and never stays on game over. */
+void demo_reset(GameState *g, uint32_t seed, Difficulty diff);
+void demo_update(GameState *g, float dt);
 /* Remaining fraction of this wave. 1 before anything is resolved, 0 when
    every walker, flyer, splitter, and child has been killed or has reached
    the base. Each splitter reserves two children, so a split cannot raise it. */

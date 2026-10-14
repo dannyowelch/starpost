@@ -1552,6 +1552,20 @@ static void test_ring_staging(void)
     CHECK(g.state == STATE_WAVE_CLEAR);
 }
 
+static void test_demo_never_ends(void)
+{
+    GameState g;
+    int i;
+    demo_reset(&g, 9, DIFF_ADVANCED);
+    CHECK(g.state == STATE_PLAYING);
+    CHECK(g.shield == STARPOST_SHIELD_MAX);
+    for (i = 0; i < 2400; i++) {
+        demo_update(&g, STARPOST_DT);
+        CHECK(g.state == STATE_PLAYING || g.state == STATE_WAVE_CLEAR);
+        CHECK(g.shield >= 3);
+    }
+}
+
 static void test_frame_step_cap(void)
 {
     double acc = 0.0;
@@ -1601,6 +1615,7 @@ int main(void)
     test_splitter();
     test_projectiles_and_lanes();
     test_ring_staging();
+    test_demo_never_ends();
     test_frame_step_cap();
     if (fails) {
         fprintf(stderr, "%d/%d checks failed\n", fails, checks);

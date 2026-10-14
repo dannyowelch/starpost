@@ -1025,3 +1025,119 @@ void game_update(GameState *g, const InputFrame *in, float dt)
         !any_alive(g))
         enter_clear(g);
 }
+
+static int demo_in_field(const GameState *g)
+{
+    int n = 0;
+    int i;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        if (g->enemies[i].alive && !g->enemies[i].on_ring)
+            n++;
+    }
+    return n;
+}
+
+static int demo_nearest_lane(const GameState *g, int *field)
+{
+    int lane = g->player.lane;
+    float best = 100.0f;
+    int i;
+    *field = 0;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        const Enemy *e = &g->enemies[i];
+        if (!e->alive || e->on_ring || e->dist >= best)
+            continue;
+        best = e->dist;
+        lane = e->lane;
+        *field = 1;
+    }
+    if (*field)
+        return lane;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        if (g->enemies[i].alive && g->enemies[i].on_ring)
+            return g->enemies[i].lane;
+    }
+    return lane;
+}
+
+static int demo_lane_busy(const GameState *g, int lane)
+{
+    int i;
+    for (i = 0; i < STARPOST_MAX_ENEMIES; i++) {
+        const Enemy *e = &g->enemies[i];
+        if (!e->alive || e->on_ring)
+            continue;
+        if ((int)e->lane == lane)
+            return 1;
+        if (e->kind == ENEMY_FLYER && starpost_flyer_in_lane(e->angle, lane))
+            return 1;
+    }
+    return 0;
+}
+
+void demo_reset(GameState *g, uint32_t seed, Difficulty diff)
+{
+    InputFrame none;
+    int tick;
+    int guard = 0;
+    if (!g)
+        return;
+    tick = g->demo_tick;
+    game_init_difficulty(g, seed, diff);
+    g->demo_tick = tick;
+    /* Wave 3 already has a walker, a flyer, and a splitter, so the attract
+       shows the real mix instead of the walker-only opener. */
+    memset(&none, 0, sizeof none);
+    while (g->cfg.wave < 3 && guard++ < 8) {
+        g->state = STATE_WAVE_CLEAR;
+        g->clear_timer = 0.01f;
+        game_update(g, &none, 0.05f);
+    }
+}
+
+void demo_update(GameState *g, float dt)
+{
+    InputFrame in;
+    const EnergyTune *tune;
+    int field = 0;
+    int target;
+    int cur;
+    int cw;
+    int ccw;
+    int busy;
+    if (!g)
+        return;
+    if (g->state == STATE_GAME_OVER)
+        demo_reset(g, g->rng, g->difficulty);
+    tune = energy_tune();
+    target = demo_nearest_lane(g, &field);
+    cur = g->player.lane;
+    cw = (target - cur + STARPOST_LANES) % STARPOST_LANES;
+    ccw = (cur - target + STARPOST_LANES) % STARPOST_LANES;
+    memset(&in, 0, sizeof in);
+    g->demo_tick++;
+    if (cw != 0) {
+        if (cw <= ccw)
+            in.right = true;
+        else
+            in.left = true;
+    }
+    busy = demo_lane_busy(g, cur);
+    if (cw == 0 && field && busy && starpost_normal_shot_allowed(tune, g->energy))
+        in.fire = true;
+    if (busy && g->energize_left[cur] <= 0.0f && g->energy >= tune->energize_cost)
+        in.energize = true;
+    if (demo_in_field(g) >= 3 && g->slow_timer <= 0.0f && g->energy >= tune->slow_cost)
+        in.slow = true;
+    if ((g->demo_tick % 240) == 0 && g->energy >= tune->spread_cost &&
+        (demo_lane_busy(g, (cur + 1) % STARPOST_LANES) ||
+         demo_lane_busy(g, (cur + STARPOST_LANES - 1) % STARPOST_LANES)))
+        in.spread = true;
+    if ((g->demo_tick % 480) == 200 && demo_in_field(g) >= 2 && g->energy >= tune->zap_cost)
+        in.zap = true;
+    game_update(g, &in, dt);
+    if (g->state == STATE_GAME_OVER)
+        demo_reset(g, g->rng ? g->rng : 1u, g->difficulty);
+    else if (g->shield < 3)
+        g->shield = 4;
+}
