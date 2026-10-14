@@ -209,6 +209,7 @@ static void test_events(void)
     g.player.cooldown = 0.0f;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].alive = true;
+    g.enemies[0].on_ring = false;
     g.enemies[0].lane = g.player.lane;
     g.enemies[0].dist = 0.4f;
     g.enemies[0].speed = 0.0f;
@@ -222,6 +223,7 @@ static void test_events(void)
     memset(g.shots, 0, sizeof g.shots);
     g.enemies[1].kind = ENEMY_FLYER;
     g.enemies[1].alive = true;
+    g.enemies[1].on_ring = false;
     g.enemies[1].dist = 0.5f;
     g.enemies[1].speed = 0.0f;
     g.enemies[1].ang_speed = 0.0f;
@@ -229,19 +231,30 @@ static void test_events(void)
     game_update(&g, &in, 0.5f / STARPOST_SHOT_SPEED + 0.004f);
     CHECK(heard(&g, GAME_SND_FLYER_KILL));
 
+    memset(g.enemies, 0, sizeof g.enemies);
+    g.enemies[0].kind = ENEMY_FLYER;
+    g.enemies[0].alive = true;
+    g.enemies[0].on_ring = true;
+    g.enemies[0].dist = 1.0f;
+    g.enemies[0].angle = starpost_lane_center(1);
+    g.enemies[0].ang_speed = 0.0f;
     g.cfg.enemy_count = 0;
     g.cfg.flyer_count = 1;
+    g.cfg.splitter_count = 0;
     g.spawned = 0;
     g.flyers_spawned = 0;
+    g.splitters_spawned = 0;
     g.spawn_timer = 0.0f;
     memset(&in, 0, sizeof in);
     game_update(&g, &in, STARPOST_DT);
     CHECK(heard(&g, GAME_SND_FLYER_SPAWN));
+    CHECK(!g.enemies[0].on_ring);
 
     game_init(&g, 2);
     g.spawn_timer = 1000.0f;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].alive = true;
+    g.enemies[0].on_ring = false;
     g.enemies[0].dist = 0.01f;
     g.enemies[0].speed = 1.0f;
     g.enemies[0].lane = 1;
@@ -253,6 +266,7 @@ static void test_events(void)
     g.shield = 1;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].alive = true;
+    g.enemies[0].on_ring = false;
     g.enemies[0].dist = 0.01f;
     g.enemies[0].speed = 1.0f;
     game_update(&g, &in, 0.05f);
@@ -260,7 +274,8 @@ static void test_events(void)
 
     game_init(&g, 3);
     g.spawn_timer = 1000.0f;
-    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count;
+    g.spawned = g.cfg.enemy_count + g.cfg.flyer_count + g.cfg.splitter_count;
+    memset(g.enemies, 0, sizeof g.enemies);
     memset(&in, 0, sizeof in);
     game_update(&g, &in, STARPOST_DT);
     CHECK(g.state == STATE_WAVE_CLEAR);
@@ -270,6 +285,7 @@ static void test_events(void)
     g.spawn_timer = 1000.0f;
     g.energy = energy_tune()->zap_cost;
     g.enemies[0].alive = true;
+    g.enemies[0].on_ring = false;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].dist = 0.4f;
     g.enemies[0].speed = 0.0f;
@@ -283,6 +299,7 @@ static void test_events(void)
     g.spawn_timer = 1000.0f;
     g.energy = 0;
     g.enemies[0].alive = true;
+    g.enemies[0].on_ring = false;
     g.enemies[0].kind = ENEMY_WALKER;
     g.enemies[0].dist = 0.4f;
     memset(&in, 0, sizeof in);

@@ -82,7 +82,7 @@ Shield knobs live next to the logic (`STARPOST_SHIELD_MAX` 8, `STARPOST_SHIELD_D
 1. Poll SDL events -> `InputFrame`.
 2. Fixed timestep 120 Hz: `game_update(GameState*, const InputFrame*, float dt)` (pure, no SDL/GL).
 3. Render the state; vsync when a display is present.
-- Walkers spawn at lane ends from `wave_config` and move inward. Flyers are scheduled with them from wave 2. Splitters are scheduled from wave 3. The wave ends when every spawned enemy is dead or has arrived, including the small units a splitter leaves behind.
+- At the start of a wave every walker, splitter, and flyer is already on the rim, smaller and dimmer, wandering between lane mouths. Each one drops into the nearest lane at its old spawn time and then moves as before. Until that drop, shots, energize, slow, and superzap ignore it. Dropping into a lane that is already energized still kills it. The wave ends when every one of them, and any small units a splitter leaves behind, is dead or has arrived.
 - A walker at the base drains 1 shield. A splitter drains 2. Each small unit drains 1. A flyer drains 3. Shield at 0 => game over.
 - Fire spends `shot_cost` (1) and launches a projectile down the current lane at `STARPOST_SHOT_SPEED` (2.5). It kills the first walker, splitter, child, or in-window flyer its path meets, then disappears. A shot that reaches the rim is gone. Several shots can share a lane. Holding fire waits `STARPOST_FIRE_COOLDOWN` (0.16 s). Spread spends 2 and launches three projectiles: the aimed lane and the lanes on either side, wrapping. The hit test steps the bullet and the target across the same `dt`, so a fast step cannot jump through a target.
 - Left/right steps one lane and wraps (7 → 0, 0 → 7). Holding the key repeats after a short delay.

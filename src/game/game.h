@@ -28,6 +28,8 @@
 #define STARPOST_SPLITTER_SPEED_SCALE 0.62f
 #define STARPOST_SPLIT_SPEED_SCALE 1.25f
 #define STARPOST_SPLIT_MIN_DIST 0.04f
+/* Radians per second along the rim while an enemy is waiting to enter. */
+#define STARPOST_RING_WANDER 0.85f
 #define STARPOST_WAVE_CLEAR_TIME 1.5f
 #define STARPOST_DT (1.0f / 120.0f)
 #define STARPOST_MAX_SHOTS 32
@@ -89,6 +91,7 @@ typedef struct {
     float angle;
     float ang_speed;
     bool alive;
+    bool on_ring;
 } Enemy;
 
 typedef struct {

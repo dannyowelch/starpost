@@ -488,7 +488,7 @@ static void script_input(const GameState *g, int tick, InputFrame *in, int spare
     }
     for (int i = 0; i < STARPOST_MAX_ENEMIES; i++) {
         const Enemy *e = &g->enemies[i];
-        if (!e->alive || e->dist >= best)
+        if (!e->alive || e->on_ring || e->dist >= best)
             continue;
         if (spare_flyers && e->kind == ENEMY_FLYER)
             continue;
