@@ -30,8 +30,12 @@
 #define STARPOST_SPLIT_MIN_DIST 0.04f
 #define STARPOST_WAVE_CLEAR_TIME 1.5f
 #define STARPOST_DT (1.0f / 120.0f)
-#define STARPOST_BEAM_TIME 0.18f
-#define STARPOST_FIRE_COOLDOWN 0.32f
+#define STARPOST_MAX_SHOTS 32
+/* Crosses the lane in 0.4 s. Fast enough to answer the fire button, slow enough to see. */
+#define STARPOST_SHOT_SPEED 2.5f
+#define STARPOST_FIRE_COOLDOWN 0.16f
+/* A flyer killed by a normal or spread projectile scores and pays this many times. */
+#define STARPOST_FLYER_SHOT_MULT 3
 #define STARPOST_TURN_REPEAT 0.13f
 /* A slow frame must not replay an unbounded stretch of simulation. */
 #define STARPOST_MAX_FRAME_SEC 0.25
@@ -88,12 +92,15 @@ typedef struct {
 } Enemy;
 
 typedef struct {
+    float dist;
     uint8_t lane;
-    uint8_t beam_lane;
-    uint8_t spread_lane;
+    uint8_t spread;
+    bool alive;
+} Shot;
+
+typedef struct {
+    uint8_t lane;
     float cooldown;
-    float beam_timer;
-    float spread_timer;
 } Player;
 
 typedef struct {
@@ -156,6 +163,7 @@ typedef enum {
 
 typedef struct {
     Enemy enemies[STARPOST_MAX_ENEMIES];
+    Shot shots[STARPOST_MAX_SHOTS];
     Player player;
     WaveConfig cfg;
     int spawned;
@@ -171,10 +179,9 @@ typedef struct {
     float zap_flash;
     float deny_flash;
     float repair_flash;
-    float energize_timer;
+    float energize_left[STARPOST_LANES];
     float slow_timer;
     int energy;
-    int energize_lane;
     bool prev_left;
     bool prev_right;
     bool prev_zap;

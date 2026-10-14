@@ -458,6 +458,15 @@ static int count_snd(const GameState *g, GameSnd id)
     return n;
 }
 
+static int shots_alive(const GameState *g)
+{
+    int n = 0;
+    int i;
+    for (i = 0; i < STARPOST_MAX_SHOTS; i++)
+        n += g->shots[i].alive ? 1 : 0;
+    return n;
+}
+
 static void test_confirm_does_not_fire(void)
 {
     Session s;
@@ -479,7 +488,7 @@ static void test_confirm_does_not_fire(void)
         session_update(&s, &in, STARPOST_DT);
     CHECK(s.screen == SCREEN_PLAY);
     CHECK(s.game.energy == energy);
-    CHECK(s.game.player.beam_timer == 0.0f);
+    CHECK(shots_alive(&s.game) == 0);
     CHECK(s.game.player.cooldown == 0.0f);
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 0);
 
@@ -487,12 +496,12 @@ static void test_confirm_does_not_fire(void)
     session_update(&s, &in, STARPOST_DT);
     CHECK(!s.await_fire_release);
     CHECK(s.game.energy == energy);
-    CHECK(s.game.player.beam_timer == 0.0f);
+    CHECK(shots_alive(&s.game) == 0);
 
     in.play.fire = true;
     session_update(&s, &in, STARPOST_DT);
     CHECK(s.game.energy == energy - energy_tune()->shot_cost);
-    CHECK(s.game.player.beam_timer > 0.0f);
+    CHECK(shots_alive(&s.game) == 1);
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
 
     energy = s.game.energy;
@@ -508,14 +517,21 @@ static void test_confirm_does_not_fire(void)
     session_update(&s, &in, STARPOST_DT);
     CHECK(s.screen == SCREEN_PLAY);
     CHECK(s.await_fire_release);
-    session_update(&s, &in, STARPOST_DT);
-    CHECK(s.game.energy == energy);
-    CHECK(s.game.player.beam_timer == 0.0f);
+    {
+        int flying = shots_alive(&s.game);
+        session_update(&s, &in, STARPOST_DT);
+        CHECK(s.game.energy == energy);
+        CHECK(shots_alive(&s.game) == flying);
+    }
     in = none();
     session_update(&s, &in, STARPOST_DT);
-    in.play.fire = true;
-    session_update(&s, &in, STARPOST_DT);
-    CHECK(s.game.energy == energy - energy_tune()->shot_cost);
+    {
+        int flying = shots_alive(&s.game);
+        in.play.fire = true;
+        session_update(&s, &in, STARPOST_DT);
+        CHECK(s.game.energy == energy - energy_tune()->shot_cost);
+        CHECK(shots_alive(&s.game) == flying + 1);
+    }
     CHECK(count_snd(&s.game, GAME_SND_FIRE) == 1);
 }
 
