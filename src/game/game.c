@@ -97,7 +97,7 @@ const EnergyTune *energy_tune(void)
         10,   /* repair_cost */
         0.28f, /* repair_glow */
         5.0f, /* slow_time */
-        0.5f, /* slow_factor, walkers only */
+        0.3f, /* slow_factor: lane enemies move at 30% speed */
         0.16f, /* deny_time */
         0.22f, /* spread_time */
         1,    /* splitter_energy */

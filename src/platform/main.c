@@ -21,7 +21,7 @@ static void usage(void)
             "  Z or Shift         superzap (20 energy)\n"
             "  X                  spread shot (2 energy)\n"
             "  Q                  energize the aimed lane (5 energy)\n"
-            "  E                  slow walkers (10 energy)\n"
+            "  E                  slow lane enemies to 30%% speed (10 energy, 5 s)\n"
             "  R                  repair one shield pip (10 energy)\n"
             "  M                  mute\n"
             "  - / =              volume\n"

@@ -712,7 +712,7 @@ static void test_energy_abilities(void)
     CHECK(t->slow_cost == 10);
     CHECK(t->repair_cost == 10);
     CHECK(t->slow_time == 5.0f);
-    CHECK(t->slow_factor == 0.5f);
+    CHECK(t->slow_factor == 0.3f);
 
     game_init(&g, 1);
     CHECK(g.energy == 20);
